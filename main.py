@@ -92,6 +92,38 @@ def set_random_seed(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+
+def check_log_dir_exists(log_dir: Path) -> bool:
+    """Check if log directory exists and prompt user for confirmation.
+
+    Args:
+        log_dir: Path to the log directory
+
+    Returns:
+        True if user wants to proceed (or dir doesn't exist), False otherwise
+    """
+    if not log_dir.exists():
+        return True
+
+    # Warn user
+    print(f"\nWARNING: Log directory already exists: {log_dir}")
+    print("Proceeding will overwrite existing files.")
+
+    # Prompt for confirmation
+    response = input("Do you want to proceed? (y/n): ").strip().lower()
+
+    if response == 'y':
+        # Remove tensorboard event files
+        tb_files = list(log_dir.glob('events.out.tfevents.*'))
+        if tb_files:
+            print(f"Removing {len(tb_files)} tensorboard file(s)...")
+            for tb_file in tb_files:
+                tb_file.unlink()
+        return True
+    else:
+        print("\nTraining cancelled.")
+        return False
+
 def main():
     """Main training script with OmegaConf CLI interface.
 
@@ -122,6 +154,11 @@ def main():
 
     # Setup log directory
     log_dir = Path(conf.training.get('log_dir', 'logs/test'))
+
+    # Check if log_dir exists and get user confirmation
+    if not check_log_dir_exists(log_dir):
+        sys.exit(1)
+
     log_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(conf, log_dir / 'config.yaml')
 
