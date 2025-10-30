@@ -2,6 +2,7 @@
 
 import numpy as np
 from pathlib import Path
+from typing import Optional
 
 from models import Model
 from tasks import BaseTask
@@ -51,7 +52,7 @@ class ParallelTrainer(BaseTrainer):
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
         # Initialize CSV with all expected fields
-        csv_fields = []
+        csv_fields = ['train/loss']
         for task, task_name in zip(self.tasks, self.task_names):
             # Get metric names from task class attribute
             for metric_name in task.metric_names:
@@ -66,14 +67,20 @@ class ParallelTrainer(BaseTrainer):
 
         self._init_csv(csv_fields)
 
-    def eval(self, task_idx: int) -> None:
+    def eval(self, task_idx: int, loss: Optional[float] = None) -> None:
         """Evaluate all tasks, log scalars and figures.
 
         Args:
             task_idx: Index of task that was trained
+            loss: Training loss to log
         """
         # Evaluate all tasks on fixed eval batches
         all_metrics = {}
+
+        # Add loss if provided
+        if loss is not None:
+            all_metrics['train/loss'] = loss
+
         for eval_task_idx, (task, task_name, eval_batch) in enumerate(zip(self.tasks, self.task_names, self.eval_batches)):
             display_name = task_name if self.multi_task else ''
 
@@ -143,7 +150,7 @@ class ParallelTrainer(BaseTrainer):
 
             # Evaluation and logging
             if (step + 1) % self.log_interval == 0:
-                self.eval(task_idx)
+                self.eval(task_idx, loss)
                 if self.multi_task:
                     task_name = self.task_names[task_idx]
                     print(f"Step {step+1}/{self.total_steps} [{task_name}]: train/loss={loss:.4f}")

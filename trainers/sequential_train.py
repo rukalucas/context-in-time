@@ -64,6 +64,7 @@ class SequentialTrainer(BaseTrainer):
                 csv_fields.append(f'{task_name}/{metric_name}')
 
         # Add sequential training fields
+        csv_fields.append('train/loss')
         csv_fields.append('train/current_task_idx')
 
         # Add scheduled parameter fields if they exist
@@ -96,7 +97,7 @@ class SequentialTrainer(BaseTrainer):
         task = self.tasks[self.current_task_idx]
         setattr(task, param_name, current_value)
 
-    def eval(self) -> None:
+    def eval(self, loss: Optional[float] = None) -> None:
         """Evaluate all tasks, log scalars and figures."""
         # Evaluate all tasks on fixed eval batches
         all_metrics = {}
@@ -108,6 +109,10 @@ class SequentialTrainer(BaseTrainer):
             # Add task prefix
             for key, value in task_metrics.items():
                 all_metrics[f'{task_name}/{key}'] = value
+
+        # Add loss if provided
+        if loss is not None:
+            all_metrics['train/loss'] = loss
 
         # Add current task index
         all_metrics['train/current_task_idx'] = self.current_task_idx
@@ -199,7 +204,7 @@ class SequentialTrainer(BaseTrainer):
 
                 # Evaluation and logging
                 if (local_step + 1) % self.log_interval == 0:
-                    self.eval()
+                    self.eval(loss)
                     print(f"Task {task_idx+1}/{len(self.tasks)} [{task_name}] "
                           f"Step {local_step+1}/{num_steps} "
                           f"(Global: {self.step}/{total_steps}): "
