@@ -24,7 +24,8 @@ class BaseTrainer:
         log_interval: int = 100,
         checkpoint_interval: int = 1000,
         optimizer_type: str = 'adam',
-        weight_decay: float = 0.01
+        weight_decay: float = 0.01,
+        clip_grad_norm: Optional[float] = None
     ):
         """Initialize base trainer.
 
@@ -37,6 +38,7 @@ class BaseTrainer:
             checkpoint_interval: Steps between checkpoints
             optimizer_type: Optimizer type ('adam', 'adamw', or 'sgd')
             weight_decay: Weight decay for AdamW optimizer (default 0.01)
+            clip_grad_norm: Maximum gradient norm for clipping (None to disable)
         """
         self.model = model
         self.log_dir = Path(log_dir)
@@ -46,6 +48,7 @@ class BaseTrainer:
         self.batch_size = batch_size
         self.log_interval = log_interval
         self.checkpoint_interval = checkpoint_interval
+        self.clip_grad_norm = clip_grad_norm
 
         # Optimizer and loss
         if optimizer_type.lower() == 'adam':
@@ -123,17 +126,33 @@ class BaseTrainer:
         self.optimizer.zero_grad()
         loss.backward()
 
-        # Compute and log gradient norms per parameter
+        # Compute and log gradient norms
+        total_grad_norm = 0.0
         for name, param in self.model.named_parameters():
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2).item()
+                total_grad_norm += param_norm ** 2
                 self.writer.add_scalar(f'train/grad_norm/{name}', param_norm, self.step)
+        total_grad_norm = total_grad_norm ** 0.5
+        self.writer.add_scalar('train/grad_norm/total', total_grad_norm, self.step)
+
+        # Gradient clipping
+        if self.clip_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(),
+                self.clip_grad_norm
+            )
 
         # Log loss
         loss_val = loss.item()
-        self.writer.add_scalar('train/loss', loss_val, self.step)
+        self.writer.add_scalar('loss', loss_val, self.step)
 
         self.optimizer.step()
+
+        # Log weight norms
+        for name, param in self.model.named_parameters():
+            param_norm = param.data.norm(2).item()
+            self.writer.add_scalar(f'train/weight_norm/{name}', param_norm, self.step)
 
         return loss_val
 

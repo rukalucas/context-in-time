@@ -54,6 +54,7 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
             checkpoint_interval=checkpoint_interval,
             total_steps=total_steps,
             optimizer_type=optimizer_type,
+            **kwargs
         )
 
         # Orthogonal projection parameters

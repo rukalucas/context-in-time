@@ -39,7 +39,7 @@ class SequentialTrainer(BaseTrainer):
         if len(task_param_schedules) != len(tasks):
             raise ValueError("task_param_schedules must have same length as tasks")
 
-        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval, optimizer_type)
+        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval, optimizer_type, **kwargs)
 
         self.tasks = tasks
         self.task_names = task_names
@@ -64,7 +64,7 @@ class SequentialTrainer(BaseTrainer):
                 csv_fields.append(f'{task_name}/{metric_name}')
 
         # Add sequential training fields
-        csv_fields.append('train/loss')
+        csv_fields.append('loss')
         csv_fields.append('train/current_task_idx')
 
         # Add scheduled parameter fields if they exist
@@ -112,7 +112,7 @@ class SequentialTrainer(BaseTrainer):
 
         # Add loss if provided
         if loss is not None:
-            all_metrics['train/loss'] = loss
+            all_metrics['loss'] = loss
 
         # Add current task index
         all_metrics['train/current_task_idx'] = self.current_task_idx
@@ -208,7 +208,7 @@ class SequentialTrainer(BaseTrainer):
                     print(f"Task {task_idx+1}/{len(self.tasks)} [{task_name}] "
                           f"Step {local_step+1}/{num_steps} "
                           f"(Global: {self.step}/{total_steps}): "
-                          f"train/loss={loss:.4f}")
+                          f"loss={loss:.4f}")
 
                 # Checkpointing
                 if (self.step % self.checkpoint_interval == 0):

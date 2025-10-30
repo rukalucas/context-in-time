@@ -9,7 +9,7 @@ tasks:
     task:
       dt: 10.0
       input_noise_std: 0.05
-      w_m: 0.1
+      w_m: 0.05
       trials_per_sequence: 40
 
   - task_type: transition
@@ -17,7 +17,7 @@ tasks:
     task:
       dt: 10.0
       input_noise_std: 0.05
-      w_m: 0.1
+      w_m: 0.05
       rule_cue_prob: 0.9  # Starting value (will be scheduled)
       trials_per_sequence: 40
     schedule:
@@ -30,7 +30,7 @@ tasks:
     task:
       dt: 10.0
       input_noise_std: 0.05
-      w_m: 0.1
+      w_m: 0.05
       trials_per_sequence: 40
 
 model:
@@ -43,12 +43,14 @@ model:
   noise_std: 0.1
 
 training:
-  learning_rate: 0.0001
+  learning_rate: 3e-4
   batch_size: 32
   total_steps: 6000
-  log_interval: 50
+  log_interval: 20
   num_eval_samples: 32
-  checkpoint_interval: 500
+  checkpoint_interval: 400
   log_dir: logs/transition_to_inferred
   reset_optimizer_between_tasks: true
-  optimizer_type: adam
+  optimizer_type: adamw
+  weight_decay: 1e-4
+  clip_grad_norm: 1.0 # clip recurrent weight grad

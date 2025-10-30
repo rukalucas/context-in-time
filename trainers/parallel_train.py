@@ -39,7 +39,7 @@ class ParallelTrainer(BaseTrainer):
         if abs(sum(task_weights) - 1.0) > 1e-2:
             raise ValueError("task_weights must approx. sum to 1.0")
 
-        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval, optimizer_type)
+        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval, optimizer_type, **kwargs)
 
         self.tasks = tasks
         self.task_names = task_names
@@ -52,7 +52,7 @@ class ParallelTrainer(BaseTrainer):
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
         # Initialize CSV with all expected fields
-        csv_fields = ['train/loss']
+        csv_fields = ['loss']
         for task, task_name in zip(self.tasks, self.task_names):
             # Get metric names from task class attribute
             for metric_name in task.metric_names:
@@ -79,7 +79,7 @@ class ParallelTrainer(BaseTrainer):
 
         # Add loss if provided
         if loss is not None:
-            all_metrics['train/loss'] = loss
+            all_metrics['loss'] = loss
 
         for eval_task_idx, (task, task_name, eval_batch) in enumerate(zip(self.tasks, self.task_names, self.eval_batches)):
             display_name = task_name if self.multi_task else ''
@@ -153,9 +153,9 @@ class ParallelTrainer(BaseTrainer):
                 self.eval(task_idx, loss)
                 if self.multi_task:
                     task_name = self.task_names[task_idx]
-                    print(f"Step {step+1}/{self.total_steps} [{task_name}]: train/loss={loss:.4f}")
+                    print(f"Step {step+1}/{self.total_steps} [{task_name}]: loss={loss:.4f}")
                 else:
-                    print(f"Step {step+1}/{self.total_steps}: train/loss={loss:.4f}")
+                    print(f"Step {step+1}/{self.total_steps}: loss={loss:.4f}")
 
             # Checkpointing
             if (step + 1) % self.checkpoint_interval == 0:
