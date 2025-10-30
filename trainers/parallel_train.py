@@ -29,6 +29,8 @@ class ParallelTrainer(BaseTrainer):
         log_interval: int = 100,
         checkpoint_interval: int = 1000,
         total_steps: int = 10000,
+        optimizer_type: str = 'adam',
+        **kwargs
     ):
         if len(tasks) != len(task_names) != len(task_weights):
             raise ValueError("tasks, task_names, and task_weights must have same length")
@@ -36,7 +38,7 @@ class ParallelTrainer(BaseTrainer):
         if abs(sum(task_weights) - 1.0) > 1e-2:
             raise ValueError("task_weights must approx. sum to 1.0")
 
-        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval)
+        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval, optimizer_type)
 
         self.tasks = tasks
         self.task_names = task_names

@@ -178,7 +178,10 @@ def print_config(conf: DictConfig):
 
     # Model/training info
     print(f"Model: input={conf.model.get('input_size', 5)}, hidden={conf.model.get('hidden_size', 128)}")
-    print(f"Training: lr={conf.training.get('learning_rate', 1e-3)}, batch={conf.training.get('batch_size', 32)}")
+    optimizer_type = conf.training.get('optimizer_type', 'adam')
+    lr = conf.training.get('learning_rate', 1e-3)
+    batch = conf.training.get('batch_size', 32)
+    print(f"Training: optimizer={optimizer_type}, lr={lr}, batch={batch}")
     print(f"Log dir: {conf.training.get('log_dir', 'logs')}")
     print("====================\n")
 

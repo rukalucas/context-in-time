@@ -22,7 +22,8 @@ class BaseTrainer:
         log_dir: str | Path = 'logs',
         batch_size: int = 64,
         log_interval: int = 100,
-        checkpoint_interval: int = 1000
+        checkpoint_interval: int = 1000,
+        optimizer_type: str = 'adam'
     ):
         """Initialize base trainer.
 
@@ -33,6 +34,7 @@ class BaseTrainer:
             batch_size: Default batch size for training
             log_interval: Steps between logging
             checkpoint_interval: Steps between checkpoints
+            optimizer_type: Optimizer type ('adam' or 'sgd')
         """
         self.model = model
         self.log_dir = Path(log_dir)
@@ -44,7 +46,13 @@ class BaseTrainer:
         self.checkpoint_interval = checkpoint_interval
 
         # Optimizer and loss
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        if optimizer_type.lower() == 'adam':
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        elif optimizer_type.lower() == 'sgd':
+            self.optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+        else:
+            raise ValueError(f"Unknown optimizer_type: {optimizer_type}. Use 'adam' or 'sgd'.")
+
         self.criterion = nn.MSELoss(reduction='none')
 
         # Logging
@@ -117,9 +125,18 @@ class BaseTrainer:
         self.optimizer.zero_grad()
         loss.backward()
 
-        # Log loss and gradients
+        # Compute and log gradient norm
+        total_norm = 0.0
+        for p in self.model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+
+        # Log loss, gradient norm, and gradient histograms
         loss_val = loss.item()
         self.writer.add_scalar('train/loss', loss_val, self.step)
+        self.writer.add_scalar('train/grad_norm', total_norm, self.step)
         self._log_gradients()
 
         self.optimizer.step()

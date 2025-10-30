@@ -51,3 +51,4 @@ training:
   checkpoint_interval: 500
   log_dir: logs/transition_to_inferred
   reset_optimizer_between_tasks: true
+  optimizer_type: adam

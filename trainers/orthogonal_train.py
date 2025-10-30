@@ -35,6 +35,8 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         log_interval: int = 100,
         checkpoint_interval: int = 1000,
         total_steps: Optional[int] = None,  # Ignored, here for config compatibility
+        optimizer_type: str = 'adam',
+        **kwargs
     ):
         # Initialize parent SequentialTrainer
         super().__init__(
@@ -51,6 +53,7 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
             log_interval=log_interval,
             checkpoint_interval=checkpoint_interval,
             total_steps=total_steps,
+            optimizer_type=optimizer_type,
         )
 
         # Orthogonal projection parameters
