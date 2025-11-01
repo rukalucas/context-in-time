@@ -340,8 +340,9 @@ class BaseTask:
         outputs: torch.Tensor,
         targets: torch.Tensor,
         eval_mask: torch.Tensor,
-        batch: dict
-    ) -> dict[str, float]:
+        batch: dict,
+        reduce: bool = True
+    ) -> dict[str, float] | dict[str, torch.Tensor]:
         """Compute standard accuracy metrics. Can be overridden for custom metrics.
 
         Args:
@@ -349,24 +350,62 @@ class BaseTask:
             targets: [B, T, 2] target outputs
             eval_mask: [B, T, 2] evaluation mask
             batch: Batch data (list of dicts)
+            reduce: If True, return scalar accuracies. If False, return per-trial accuracies [N, B]
+
+        Returns:
+            If reduce=True: dict with scalar accuracies
+            If reduce=False: dict with [N, B] accuracy tensors
         """
         with torch.no_grad():
-            # Horizontal (decision) accuracy
-            h_eval_mask = eval_mask[:, :, 0] > 0
-            h_pred = outputs[:, :, 0][h_eval_mask]
-            h_tgt = targets[:, :, 0][h_eval_mask]
-            h_acc = ((h_pred > 0) == (h_tgt > 0)).float().mean().item()
+            # Compute per-trial accuracies
+            decision_accs = []
+            rule_accs = []
 
-            # Vertical (rule) accuracy
-            v_eval_mask = eval_mask[:, :, 1] > 0
-            v_pred = outputs[:, :, 1][v_eval_mask]
-            v_tgt = targets[:, :, 1][v_eval_mask]
-            v_acc = ((v_pred > 0) == (v_tgt > 0)).float().mean().item()
+            t_start = 0
+            for trial_dict in batch:
+                trial_len = trial_dict['inputs'].shape[1]
+                t_end = t_start + trial_len
 
-            return {
-                'decision_accuracy': h_acc,
-                'rule_accuracy': v_acc,
-            }
+                # Extract this trial's data
+                trial_outputs = outputs[:, t_start:t_end, :]
+                trial_targets = targets[:, t_start:t_end, :]
+                trial_eval_mask = eval_mask[:, t_start:t_end, :]
+
+                # Decision accuracy per batch element
+                h_eval_mask = trial_eval_mask[:, :, 0] > 0
+                h_pred = trial_outputs[:, :, 0]
+                h_tgt = trial_targets[:, :, 0]
+                h_correct = ((h_pred > 0) == (h_tgt > 0)).float() * h_eval_mask
+                h_acc_per_batch = h_correct.sum(dim=1) / (h_eval_mask.sum(dim=1) + 1e-8)
+
+                # Rule accuracy per batch element
+                v_eval_mask = trial_eval_mask[:, :, 1] > 0
+                v_pred = trial_outputs[:, :, 1]
+                v_tgt = trial_targets[:, :, 1]
+                v_correct = ((v_pred > 0) == (v_tgt > 0)).float() * v_eval_mask
+                v_acc_per_batch = v_correct.sum(dim=1) / (v_eval_mask.sum(dim=1) + 1e-8)
+
+                decision_accs.append(h_acc_per_batch)
+                rule_accs.append(v_acc_per_batch)
+
+                t_start = t_end
+
+            # Stack into [N, B] tensors
+            decision_accs = torch.stack(decision_accs)  # [N, B]
+            rule_accs = torch.stack(rule_accs)  # [N, B]
+
+            if reduce:
+                # Reduce to scalars
+                return {
+                    'decision_accuracy': decision_accs.mean().item(),
+                    'rule_accuracy': rule_accs.mean().item(),
+                }
+            else:
+                # Return per-trial tensors
+                return {
+                    'decision_accuracy': decision_accs,
+                    'rule_accuracy': rule_accs,
+                }
 
     def create_trial_figure(
         self,
@@ -376,7 +415,9 @@ class BaseTask:
         eval_mask: np.ndarray,
         trial_idx: int,
         batch: dict,
-        batch_idx: int = 0
+        batch_idx: int = 0,
+        iti_inputs: Optional[np.ndarray] = None,
+        iti_outputs: Optional[np.ndarray] = None
     ) -> plt.Figure:
         """Create standard trial visualization. Can be overridden for custom figures.
 
@@ -388,6 +429,8 @@ class BaseTask:
             trial_idx: Trial index
             batch: Batch data (list of dicts)
             batch_idx: Batch element index (default 0)
+            iti_inputs: Optional [iti_len, 5] ITI input array
+            iti_outputs: Optional [iti_len, 2] ITI output array
         """
         fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
 
@@ -400,6 +443,22 @@ class BaseTask:
             # For single-trial tasks: trial_idx is batch element
             T = batch['metadata']['trial_length'][trial_idx]
             metadata = {k: v[trial_idx] for k, v in batch['metadata'].items()}
+
+        # Concatenate ITI data if provided
+        iti_boundary = None
+        if iti_inputs is not None and iti_outputs is not None:
+            iti_boundary = T
+            iti_len = iti_inputs.shape[0]
+
+            # Concatenate inputs
+            inputs = np.concatenate([inputs[:T], iti_inputs], axis=0)
+            outputs = np.concatenate([outputs[:T], iti_outputs], axis=0)
+
+            # Extend targets and eval_mask with zeros for ITI
+            targets = np.concatenate([targets[:T], np.zeros((iti_len, 2))], axis=0)
+            eval_mask = np.concatenate([eval_mask[:T], np.zeros((iti_len, 2))], axis=0)
+
+            T = T + iti_len
 
         time_ms = np.arange(T) * self.dt
 
@@ -444,6 +503,17 @@ class BaseTask:
         ax.set_title('Outputs')
         ax.legend(loc='upper right', fontsize=8)
         ax.grid(True, alpha=0.3)
+
+        # Add ITI boundary marker if present
+        if iti_boundary is not None:
+            boundary_time = iti_boundary * self.dt
+            for ax in axes:
+                ax.axvline(boundary_time, color='red', linestyle='--', linewidth=2, alpha=0.7)
+                # Add ITI label
+                y_min, y_max = ax.get_ylim()
+                ax.text(boundary_time + (time_ms[-1] - boundary_time) / 2, y_max * 0.9,
+                       'ITI', ha='center', va='top', fontsize=10, color='red',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='red', alpha=0.7))
 
         plt.tight_layout()
         return fig

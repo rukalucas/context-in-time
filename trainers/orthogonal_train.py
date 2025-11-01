@@ -19,43 +19,13 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
 
     def __init__(
         self,
-        model: Model,
-        tasks: list[BaseTask],
-        task_names: list[str],
-        task_num_steps: list[int],
-        task_param_schedules: Optional[list[Optional[dict]]] = None,
-        learning_rate: float = 1e-3,
-        reset_optimizer_between_tasks: bool = False,
-        log_dir: str = 'logs',
-        num_eval_samples: int = 100,
         alpha_projection: float = 0.001,
         apply_proj_to: str = 'both',
         projection_collection_batch_size: int = 64,
-        batch_size: int = 64,
-        log_interval: int = 100,
-        checkpoint_interval: int = 1000,
-        total_steps: Optional[int] = None,  # Ignored, here for config compatibility
-        optimizer_type: str = 'adam',
         **kwargs
     ):
-        # Initialize parent SequentialTrainer
-        super().__init__(
-            model=model,
-            tasks=tasks,
-            task_names=task_names,
-            task_num_steps=task_num_steps,
-            task_param_schedules=task_param_schedules,
-            learning_rate=learning_rate,
-            reset_optimizer_between_tasks=reset_optimizer_between_tasks,
-            log_dir=log_dir,
-            num_eval_samples=num_eval_samples,
-            batch_size=batch_size,
-            log_interval=log_interval,
-            checkpoint_interval=checkpoint_interval,
-            total_steps=total_steps,
-            optimizer_type=optimizer_type,
-            **kwargs
-        )
+        # Pass all parameters to parent SequentialTrainer
+        super().__init__(**kwargs)
 
         # Orthogonal projection parameters
         self.alpha_projection = alpha_projection

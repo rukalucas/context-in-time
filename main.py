@@ -47,15 +47,19 @@ def create_trainer(conf: DictConfig, model, log_dir: str = None):
     if log_dir is None:
         log_dir = conf.training.get('log_dir', 'logs')
 
+    # Extract eval flags (default True for each task)
+    task_eval_flags = [spec.get('eval', True) for spec in conf.tasks]
+
     # Build trainer params dict
     trainer_params = {
         'model': model,
         'tasks': tasks,
         'task_names': task_names,
+        'task_eval_flags': task_eval_flags,
         'log_dir': log_dir,
         **conf.training
     }
-    
+
     # Create appropriate trainer
     if trainer_type == 'parallel':
         weights = [spec.weight for spec in conf.tasks]

@@ -23,14 +23,9 @@ class ParallelTrainer(BaseTrainer):
         tasks: list[BaseTask],
         task_names: list[str],
         task_weights: list[float],
-        learning_rate: float = 1e-3,
-        log_dir: str = 'logs',
+        task_eval_flags: Optional[list[bool]] = None,
         num_eval_samples: int = 100,
-        batch_size: int = 64,
-        log_interval: int = 100,
-        checkpoint_interval: int = 1000,
         total_steps: int = 10000,
-        optimizer_type: str = 'adam',
         **kwargs
     ):
         if len(tasks) != len(task_names) != len(task_weights):
@@ -39,11 +34,19 @@ class ParallelTrainer(BaseTrainer):
         if abs(sum(task_weights) - 1.0) > 1e-2:
             raise ValueError("task_weights must approx. sum to 1.0")
 
-        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval, optimizer_type, **kwargs)
+        # Default all tasks to eval=True if not specified
+        if task_eval_flags is None:
+            task_eval_flags = [True] * len(tasks)
+        if len(task_eval_flags) != len(tasks):
+            raise ValueError("task_eval_flags must have same length as tasks")
+
+        # Pass common training parameters to base via kwargs
+        super().__init__(model=model, **kwargs)
 
         self.tasks = tasks
         self.task_names = task_names
         self.task_weights = np.array(task_weights)
+        self.task_eval_flags = task_eval_flags
         self.task_step_counts = [0] * len(tasks)
         self.total_steps = total_steps
         self.multi_task = len(self.tasks) > 1
@@ -51,9 +54,11 @@ class ParallelTrainer(BaseTrainer):
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
-        # Initialize CSV with all expected fields
+        # Initialize CSV with all expected fields (only for tasks with eval=True)
         csv_fields = ['loss']
-        for task, task_name in zip(self.tasks, self.task_names):
+        for task, task_name, eval_flag in zip(self.tasks, self.task_names, self.task_eval_flags):
+            if not eval_flag:
+                continue
             # Get metric names from task class attribute
             for metric_name in task.metric_names:
                 if self.multi_task:
@@ -68,20 +73,25 @@ class ParallelTrainer(BaseTrainer):
         self._init_csv(csv_fields)
 
     def eval(self, task_idx: int, loss: Optional[float] = None) -> None:
-        """Evaluate all tasks, log scalars and figures.
+        """Evaluate all tasks with eval=True, log scalars and figures.
 
         Args:
             task_idx: Index of task that was trained
             loss: Training loss to log
         """
-        # Evaluate all tasks on fixed eval batches
+        # Evaluate all tasks on fixed eval batches (only those with eval=True)
         all_metrics = {}
 
         # Add loss if provided
         if loss is not None:
             all_metrics['loss'] = loss
 
-        for eval_task_idx, (task, task_name, eval_batch) in enumerate(zip(self.tasks, self.task_names, self.eval_batches)):
+        for eval_task_idx, (task, task_name, eval_batch, eval_flag) in enumerate(
+            zip(self.tasks, self.task_names, self.eval_batches, self.task_eval_flags)
+        ):
+            if not eval_flag:
+                continue
+
             display_name = task_name if self.multi_task else ''
 
             # Compute accuracies and log trial figures
@@ -134,7 +144,21 @@ class ParallelTrainer(BaseTrainer):
 
         print(f"Log directory: {self.log_dir}")
 
+        loss = None  # Initialize for first eval
+        task_idx = 0  # Initialize for first eval
         for step in range(self.total_steps):
+            # Evaluation and logging (before training step)
+            if self.step % self.log_interval == 0:
+                self.eval(task_idx, loss)
+                if self.multi_task:
+                    task_name = self.task_names[task_idx] if loss is not None else ""
+                    task_str = f" [{task_name}]" if task_name else ""
+                    print(f"Step {self.step}/{self.total_steps}{task_str}"
+                          + (f": loss={loss:.4f}" if loss is not None else ""))
+                else:
+                    print(f"Step {self.step}/{self.total_steps}"
+                          + (f": loss={loss:.4f}" if loss is not None else ""))
+
             # Training step
             self.model.train()
 
@@ -143,19 +167,10 @@ class ParallelTrainer(BaseTrainer):
             task = self.tasks[task_idx]
             batch = task.generate_batch(self.batch_size)
             loss = self.train_step(batch, task)
-            
+
             # Update counters
             self.step += 1
             self.task_step_counts[task_idx] += 1
-
-            # Evaluation and logging
-            if (step + 1) % self.log_interval == 0:
-                self.eval(task_idx, loss)
-                if self.multi_task:
-                    task_name = self.task_names[task_idx]
-                    print(f"Step {step+1}/{self.total_steps} [{task_name}]: loss={loss:.4f}")
-                else:
-                    print(f"Step {step+1}/{self.total_steps}: loss={loss:.4f}")
 
             # Checkpointing
             if (step + 1) % self.checkpoint_interval == 0:

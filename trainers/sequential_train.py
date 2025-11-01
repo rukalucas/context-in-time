@@ -18,20 +18,22 @@ class SequentialTrainer(BaseTrainer):
         tasks: list[BaseTask],
         task_names: list[str],
         task_num_steps: list[int],
+        task_eval_flags: Optional[list[bool]] = None,
         task_param_schedules: Optional[list[Optional[dict]]] = None,
-        learning_rate: float = 1e-3,
         reset_optimizer_between_tasks: bool = False,
-        log_dir: str = 'logs',
         num_eval_samples: int = 100,
-        batch_size: int = 64,
-        log_interval: int = 100,
-        checkpoint_interval: int = 1000,
         total_steps: Optional[int] = None,  # Ignored, here for config compatibility
-        optimizer_type: str = 'adam',
+        learning_rate: float = 1e-3,  # Kept explicit for reset_optimizer_between_tasks
         **kwargs
     ):
         if len(tasks) != len(task_names) != len(task_num_steps):
             raise ValueError("tasks, task_names, and task_num_steps must have same length")
+
+        # Default all tasks to eval=True if not specified
+        if task_eval_flags is None:
+            task_eval_flags = [True] * len(tasks)
+        if len(task_eval_flags) != len(tasks):
+            raise ValueError("task_eval_flags must have same length as tasks")
 
         # Parameter scheduling
         if task_param_schedules is None:
@@ -39,11 +41,13 @@ class SequentialTrainer(BaseTrainer):
         if len(task_param_schedules) != len(tasks):
             raise ValueError("task_param_schedules must have same length as tasks")
 
-        super().__init__(model, learning_rate, log_dir, batch_size, log_interval, checkpoint_interval, optimizer_type, **kwargs)
+        # Pass common training parameters to base via kwargs
+        super().__init__(model=model, learning_rate=learning_rate, **kwargs)
 
         self.tasks = tasks
         self.task_names = task_names
         self.task_num_steps = task_num_steps
+        self.task_eval_flags = task_eval_flags
         self.task_param_schedules = task_param_schedules
         self.reset_optimizer_between_tasks = reset_optimizer_between_tasks
         self.learning_rate = learning_rate
@@ -56,9 +60,11 @@ class SequentialTrainer(BaseTrainer):
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
-        # Initialize CSV with all expected fields
+        # Initialize CSV with all expected fields (only for tasks with eval=True)
         csv_fields = []
-        for task, task_name in zip(self.tasks, self.task_names):
+        for task, task_name, eval_flag in zip(self.tasks, self.task_names, self.task_eval_flags):
+            if not eval_flag:
+                continue
             # Get metric names from task class attribute
             for metric_name in task.metric_names:
                 csv_fields.append(f'{task_name}/{metric_name}')
@@ -98,10 +104,14 @@ class SequentialTrainer(BaseTrainer):
         setattr(task, param_name, current_value)
 
     def eval(self, loss: Optional[float] = None) -> None:
-        """Evaluate all tasks, log scalars and figures."""
-        # Evaluate all tasks on fixed eval batches
+        """Evaluate all tasks with eval=True, log scalars and figures."""
         all_metrics = {}
-        for task_idx, (task, task_name, eval_batch) in enumerate(zip(self.tasks, self.task_names, self.eval_batches)):
+        for task_idx, (task, task_name, eval_batch, eval_flag) in enumerate(
+            zip(self.tasks, self.task_names, self.eval_batches, self.task_eval_flags)
+        ):
+            if not eval_flag:
+                continue
+
             # Compute accuracies and optionally log trial figures
             task_metrics = self.eval_task(task, eval_batch, log_figures=True,
                                          task_name=task_name, num_trials=1)
@@ -190,7 +200,16 @@ class SequentialTrainer(BaseTrainer):
 
             print(f"{'='*60}\n")
 
+            loss = None  # Initialize for first eval
             for local_step in range(num_steps):
+                # Evaluation and logging (before training step)
+                if self.current_task_step % self.log_interval == 0:
+                    self.eval(loss)
+                    print(f"Task {task_idx+1}/{len(self.tasks)} [{task_name}] "
+                          f"Step {self.current_task_step}/{num_steps} "
+                          f"(Global: {self.step}/{total_steps})"
+                          + (f": loss={loss:.4f}" if loss is not None else ""))
+
                 # Training step
                 self.model.train()
                 self._update_task_parameter()
@@ -201,14 +220,6 @@ class SequentialTrainer(BaseTrainer):
                 # Update counters
                 self.step += 1
                 self.current_task_step += 1
-
-                # Evaluation and logging
-                if (local_step + 1) % self.log_interval == 0:
-                    self.eval(loss)
-                    print(f"Task {task_idx+1}/{len(self.tasks)} [{task_name}] "
-                          f"Step {local_step+1}/{num_steps} "
-                          f"(Global: {self.step}/{total_steps}): "
-                          f"loss={loss:.4f}")
 
                 # Checkpointing
                 if (self.step % self.checkpoint_interval == 0):
