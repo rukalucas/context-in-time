@@ -32,7 +32,7 @@ model:
 training:
   learning_rate: 0.0003
   batch_size: 64
-  num_eval_samples: 20 # number of eval batches. evaluated trials = 40 * this
+  num_eval_samples: 32 # number of eval batches. evaluated trials = 40 * this
   log_interval: 20
   checkpoint_interval: 500
   log_dir: logs/parallel_multitask

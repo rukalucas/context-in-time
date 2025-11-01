@@ -4,6 +4,7 @@ random_seed: 42
 
 tasks:
   - task_type: instructed
+    eval: true
     weight: 1.0
     task:
       dt: 10.0
@@ -28,3 +29,4 @@ training:
   checkpoint_interval: 500
   log_dir: logs/test
   optimizer_type: adam
+  clip_grad_norm: 1.0

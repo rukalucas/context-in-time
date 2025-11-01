@@ -6,6 +6,7 @@ random_seed: 42
 tasks:
   - task_type: sequence_instructed
     num_steps: 2000
+    eval: true
     task:
       dt: 10.0
       input_noise_std: 0.05
@@ -14,6 +15,7 @@ tasks:
 
   - task_type: transition
     num_steps: 2000
+    eval: false
     task:
       dt: 10.0
       input_noise_std: 0.05
@@ -27,6 +29,7 @@ tasks:
 
   - task_type: inferred
     num_steps: 2000
+    eval: true
     task:
       dt: 10.0
       input_noise_std: 0.05
@@ -44,13 +47,13 @@ model:
 
 training:
   learning_rate: 3e-4
-  batch_size: 32
+  batch_size: 64
   total_steps: 6000
   log_interval: 20
-  num_eval_samples: 32
+  num_eval_samples: 64
   checkpoint_interval: 400
   log_dir: logs/transition_to_inferred
   reset_optimizer_between_tasks: true
-  optimizer_type: adamw
-  weight_decay: 1e-4
+  optimizer_type: adam
+  # weight_decay: 1e-4 # for adamw
   clip_grad_norm: 1.0 # clip recurrent weight grad
