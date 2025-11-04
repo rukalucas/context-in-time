@@ -221,6 +221,8 @@ class BaseTask:
             'decision': decision,
             'trial_length': total_t,
             'has_instruction': has_instruction,
+            'initial_fixation_rule': initial_fixation_rule,
+            'initial_fixation_timing': initial_fixation_timing,
         }
 
     def _generate_block_structure(self, num_trials: int):

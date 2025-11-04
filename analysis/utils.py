@@ -252,24 +252,36 @@ def _extract_period_boundaries(batch, task, num_trials):
     """
     Extract period boundaries for both sequence and non-sequence tasks.
 
-    For sequence tasks: Returns 'iti', 'rule_report', 'timing', 'decision'
+    Uses actual trial-specific fixation delays (not maximum delays) to correctly
+    identify where each period starts and ends. This ensures proper alignment of
+    neural trajectories across trials.
+
+    For sequence tasks: Returns 'rule_report', 'timing', 'decision', 'iti'
     For non-sequence tasks: Returns 'rule_report', 'timing', 'decision' (no ITI)
+
+    Note: For sequence tasks, ITI is appended after trial data, so the data array
+    for each trial includes both the trial timesteps and the following ITI timesteps.
+
+    Args:
+        batch: List of trial dicts (new batch format) with metadata including
+               'initial_fixation_rule', 'initial_fixation_timing', 'iti_start', 'iti_length'
+        task: Task instance
+        num_trials: Number of trials
 
     Returns:
         dict with period names as keys, values are lists of dicts with 'start'/'end'
     """
     # Detect task type
-    is_sequence_task = hasattr(task, 'inter_trial_interval')
+    is_sequence_task = task.trials_per_sequence > 1
 
     # Initialize period info based on task type
     if is_sequence_task:
         period_info = {
-            'iti': [],
             'rule_report': [],
             'timing': [],
-            'decision': []
+            'decision': [],
+            'iti': []
         }
-        iti_steps = int(task.inter_trial_interval / task.dt)
     else:
         period_info = {
             'rule_report': [],
@@ -277,46 +289,47 @@ def _extract_period_boundaries(batch, task, num_trials):
             'decision': []
         }
 
-    # Get task parameters (common to both task types)
+    # Get task parameters
     pulse_width_steps = int(task.pulse_width / task.dt)
     response_duration = int(task.response_period / task.dt)
-    rule_delay_max = int(task.fixation_delay_range[1] / task.dt)
     rule_report_duration = int(task.rule_report_period / task.dt)
-    timing_delay_max = int(task.fixation_delay_range[1] / task.dt)
 
-    # For each trial, compute period boundaries
+    # Extract period boundaries for each trial
     for i in range(num_trials):
-        # Extract trial length (handling both 1D and 2D arrays)
-        trial_length = batch['trial_length'][0][i] if batch['trial_length'].ndim > 1 else batch['trial_length'][i]
-
-        # Get measured time for this trial
-        t_m = batch['t_m'][0][i] if batch['t_m'].ndim > 1 else batch['t_m'][i]
-        t_m_steps = int(t_m / task.dt)
-
-        if is_sequence_task:
-            # Sequence task: Has ITI at start
-            iti_start = 0
-            iti_end = iti_steps
-
-            # Rule report period: after ITI
-            rule_report_start = iti_end
-            rule_report_end = rule_report_start + rule_delay_max + rule_report_duration
-            rule_report_end = min(trial_length, rule_report_end)
-
-            period_info['iti'].append({'start': iti_start, 'end': iti_end})
+        # Get trial-specific data
+        if len(batch) > 1:
+            # Sequence task: N trial dicts with B=1
+            trial_length = batch[i]['trial_lengths'][0].item()
+            t_m = batch[i]['metadata']['t_m'][0]
+            initial_fix_rule = batch[i]['metadata']['initial_fixation_rule'][0]
+            initial_fix_timing = batch[i]['metadata']['initial_fixation_timing'][0]
         else:
-            # Non-sequence task: No ITI, rule report starts from beginning
-            rule_report_start = 0
-            rule_report_end = rule_delay_max + rule_report_duration
-            rule_report_end = min(trial_length, rule_report_end)
+            # Non-sequence task: 1 trial dict with B=num_trials
+            trial_length = batch[0]['trial_lengths'][i].item()
+            t_m = batch[0]['metadata']['t_m'][i]
+            initial_fix_rule = batch[0]['metadata']['initial_fixation_rule'][i]
+            initial_fix_timing = batch[0]['metadata']['initial_fixation_timing'][i]
 
-        # Timing period: from first pulse to end of second pulse (same for both task types)
-        timing_start = rule_report_end + timing_delay_max
-        timing_duration = t_m_steps + pulse_width_steps
-        timing_end = timing_start + timing_duration
+        # Convert to steps
+        t_m_steps = int(t_m / task.dt)
+        t_initial_fix_rule = int(initial_fix_rule / task.dt)
+        t_initial_fix_timing = int(initial_fix_timing / task.dt)
+        t_pulse = pulse_width_steps
+
+        # Rule report period: includes initial fixation + response period
+        rule_report_start = 0
+        rule_report_end = t_initial_fix_rule + rule_report_duration
+        rule_report_end = min(trial_length, rule_report_end)
+
+        # Timing period: includes fixation + both pulses
+        # Starts after rule report, ends after second pulse
+        timing_start = rule_report_end
+        timing_ready = timing_start + t_initial_fix_timing
+        timing_set = timing_ready + t_m_steps
+        timing_end = timing_set + t_pulse
         timing_end = min(trial_length, timing_end)
 
-        # Decision period: last part of trial (same for both task types)
+        # Decision period: last part of trial
         decision_start = trial_length - response_duration
         decision_end = trial_length
 
@@ -324,6 +337,20 @@ def _extract_period_boundaries(batch, task, num_trials):
         period_info['rule_report'].append({'start': rule_report_start, 'end': rule_report_end})
         period_info['timing'].append({'start': timing_start, 'end': timing_end})
         period_info['decision'].append({'start': decision_start, 'end': decision_end})
+
+        # ITI (only for sequence tasks)
+        if is_sequence_task:
+            # Get ITI metadata - ITI is appended after trial data
+            if len(batch) > 1:
+                iti_start_in_trial = batch[i]['metadata']['iti_start'][0]
+                iti_length = batch[i]['metadata']['iti_length'][0]
+            else:
+                iti_start_in_trial = batch[0]['metadata']['iti_start'][i]
+                iti_length = batch[0]['metadata']['iti_length'][i]
+
+            iti_start = int(iti_start_in_trial)
+            iti_end = iti_start + int(iti_length)
+            period_info['iti'].append({'start': iti_start, 'end': iti_end})
 
     return period_info
 
@@ -335,6 +362,10 @@ def generate_data(task, model, num_trials=None, device='cpu'):
     Handles both sequence tasks (with multiple trials per sequence and reward feedback)
     and non-sequence tasks (independent trials).
 
+    For sequence tasks, ITI periods are included: each trial's data array contains both
+    the trial timesteps and the following ITI timesteps (except for the last trial).
+    The metadata includes 'iti_start' and 'iti_length' for each trial.
+
     Args:
         task: Task instance
         model: Trained model instance
@@ -343,10 +374,10 @@ def generate_data(task, model, num_trials=None, device='cpu'):
 
     Returns:
         dict containing:
-            - 'inputs': torch.Tensor of shape (num_trials, C, T) - all trial inputs
-            - 'outputs': torch.Tensor of shape (num_trials, C_out, T) - model outputs
-            - 'hidden_states': torch.Tensor of shape (num_trials, H, T) - hidden states
-            - 'batch': dict with all batch metadata (trial_length, rule, t_m, t_s, etc.)
+            - 'inputs': torch.Tensor of shape (num_trials, T, C) - all trial inputs (includes ITI for sequence tasks)
+            - 'outputs': torch.Tensor of shape (num_trials, T, C_out) - model outputs (includes ITI)
+            - 'hidden_states': torch.Tensor of shape (num_trials, H, T) - hidden states (includes ITI)
+            - 'batch': list of trial dicts with metadata (includes iti_start, iti_length for sequence tasks)
     """
     model.eval()
 
@@ -358,95 +389,127 @@ def generate_data(task, model, num_trials=None, device='cpu'):
         num_trials = num_trials or task.trials_per_sequence
 
         # Generate batch with single sequence
-        batch = task.generate_batch(batch_size=1)
-        inputs = batch['inputs'].to(device)  # (1, N, T, C)
+        batch = task.generate_batch(batch_size=1)  # List of N trial dicts
 
-        B, N, T_max, C = inputs.shape
-        assert B == 1, "Only batch_size=1 supported"
+        N = len(batch)  # Number of trials in sequence
+        assert N == num_trials, f"Expected {num_trials} trials, got {N}"
 
-        # Get eval_mask for correctness checking
-        eval_mask = batch['eval_mask'].to(device)  # (1, N, T, 4)
-        targets = batch['targets'].to(device)  # (1, N, T, C_out)
-
-        # Run trials sequentially with reward updates
+        # Run trials sequentially with reward updates and ITI
         hidden = None
         all_outputs = []
         all_hidden_states = []
+        all_inputs = []
 
         with torch.no_grad():
-            for n in range(N):
-                # Get trial inputs: [1, T, C]
-                trial_inputs = inputs[:, n, :, :].clone()
+            for trial_idx in range(N):
+                trial_dict = batch[trial_idx]
 
-                # Initialize hidden state for this trial if needed
+                # Get trial data: [1, T, C]
+                trial_inputs = trial_dict['inputs'].to(device)  # [1, T, 5]
+                trial_targets = trial_dict['targets'].to(device)  # [1, T, 2]
+                trial_eval_mask = trial_dict['eval_mask'].to(device)  # [1, T, 2]
+                trial_length = trial_dict['trial_lengths'][0].item()
+
+                # Initialize hidden state for first trial
                 if hidden is None:
                     hidden = torch.zeros(1, model.hidden_size, device=device)
 
-                # Process timestep by timestep
+                # Process trial timestep by timestep
                 trial_outputs_list = []
                 trial_hidden_list = []
 
-                for t in range(T_max):
-                    input_t = trial_inputs[:, t, :]  # [1, C]
-                    output_t, hidden = model(input_t, hidden)  # [1, C_out], [1, H]
+                for t in range(trial_length):
+                    input_t = trial_inputs[:, t, :]  # [1, 5]
+                    output_t, hidden = model(input_t, hidden)  # [1, 2], [1, H]
                     trial_outputs_list.append(output_t)
                     trial_hidden_list.append(hidden)
 
-                # Stack to [1, T, C_out] and [1, T, H]
+                # Process ITI between trials (except after last trial)
+                iti_length = 0
+                if trial_idx < N - 1:
+                    # Stack trial outputs to compute correctness
+                    trial_outputs_stacked = torch.stack(trial_outputs_list, dim=1)
+
+                    # Check trial correctness
+                    is_correct = task._evaluate_trial_correctness_batch(
+                        trial_outputs_stacked,
+                        trial_targets[:, :trial_length, :],
+                        trial_eval_mask[:, :trial_length, :]
+                    )
+
+                    # Generate ITI inputs with reward feedback
+                    iti_inputs = task._generate_iti_inputs(
+                        is_correct,
+                        trial_dict['metadata'],
+                        task.iti_len,
+                        task.reward_len
+                    ).to(device)  # [1, iti_len, 5]
+
+                    # Process ITI and save hidden states
+                    iti_outputs_list = []
+                    iti_hidden_list = []
+                    for t in range(task.iti_len):
+                        input_t = iti_inputs[:, t, :]  # [1, 5]
+                        output_t, hidden = model(input_t, hidden)  # [1, 2], [1, H]
+                        iti_outputs_list.append(output_t)
+                        iti_hidden_list.append(hidden)
+
+                    # Append ITI to trial data
+                    trial_outputs_list.extend(iti_outputs_list)
+                    trial_hidden_list.extend(iti_hidden_list)
+                    iti_length = task.iti_len
+
+                # Stack to [1, T_total, 2] and [1, T_total, H] (includes ITI if present)
                 trial_outputs = torch.stack(trial_outputs_list, dim=1)
                 trial_hidden_states = torch.stack(trial_hidden_list, dim=1)
 
+                # Concatenate trial inputs with ITI inputs (zeros if no ITI)
+                trial_inputs_with_iti = torch.cat([
+                    trial_inputs[:, :trial_length, :],
+                    iti_inputs if iti_length > 0 else torch.zeros(1, 0, 5, device=device)
+                ], dim=1)
+
+                all_inputs.append(trial_inputs_with_iti)
                 all_outputs.append(trial_outputs)
                 all_hidden_states.append(trial_hidden_states)
 
-                if n < N - 1:
-                    # Update reward signal for next trial
-                    if hasattr(task, 'is_trial_correct_batch') and hasattr(task, 'set_reward_signal_batch'):
-                        # Transpose for is_trial_correct_batch: expects [B, C_out, T]
-                        trial_outputs_t = trial_outputs.transpose(1, 2)  # [1, C_out, T]
-                        trial_targets = targets[:, n, :, :].transpose(1, 2)  # [1, C_out, T]
-                        trial_eval_mask = eval_mask[:, n, :, :].transpose(1, 2)  # [1, 4, T]
+                # Add ITI start index to metadata
+                batch[trial_idx]['metadata']['iti_start'] = np.array([trial_length])
+                batch[trial_idx]['metadata']['iti_length'] = np.array([iti_length])
 
-                        is_correct_batch = task.is_trial_correct_batch(
-                            trial_outputs_t,
-                            trial_targets,
-                            trial_eval_mask
-                        )
+        # Concatenate all trials: [N, T_max, C]
+        # Find max trial length
+        max_trial_len = max(inp.shape[1] for inp in all_inputs)
 
-                        # Update reward in next trial inputs: [1, T, C]
-                        task.set_reward_signal_batch(
-                            inputs[:, n+1, :, :],
-                            is_correct_batch
-                        )
+        # Pad and stack
+        inputs_padded = []
+        outputs_padded = []
+        hidden_states_padded = []
 
-        # Stack all outputs: [N, T, C_out] and [N, T, H]
-        outputs = torch.cat(all_outputs, dim=0)  # (N, T, C_out)
-        hidden_states = torch.cat(all_hidden_states, dim=0)  # (N, T, H)
+        for inp, out, hid in zip(all_inputs, all_outputs, all_hidden_states):
+            T = inp.shape[1]
+            if T < max_trial_len:
+                pad_width = max_trial_len - T
+                inp = torch.cat([inp, torch.zeros(1, pad_width, 5, device=device)], dim=1)
+                out = torch.cat([out, torch.zeros(1, pad_width, 2, device=device)], dim=1)
+                hid = torch.cat([hid, torch.zeros(1, pad_width, hidden.shape[-1], device=device)], dim=1)
+            inputs_padded.append(inp)
+            outputs_padded.append(out)
+            hidden_states_padded.append(hid)
 
-        # Transpose to [N, C_out, T] and [N, H, T] for analysis compatibility
-        outputs = outputs.transpose(1, 2)  # (N, C_out, T)
+        # Stack and remove batch dimension: [N, T, C]
+        inputs = torch.cat(inputs_padded, dim=0)  # (N, T, 5)
+        outputs = torch.cat(outputs_padded, dim=0)  # (N, T, 2)
+        hidden_states = torch.cat(hidden_states_padded, dim=0)  # (N, T, H)
+
+        # Transpose hidden_states to [N, H, T] for PCA functions
         hidden_states = hidden_states.transpose(1, 2)  # (N, H, T)
-        inputs_flat = inputs[0].transpose(0, 1)  # (N, C, T)
-
-        # Flatten batch metadata
-        batch_flat = {}
-        for key, value in batch.items():
-            if key == 'metadata' and isinstance(value, dict):
-                # Flatten nested metadata dict
-                for meta_key, meta_value in value.items():
-                    batch_flat[meta_key] = meta_value
-            elif isinstance(value, torch.Tensor):
-                batch_flat[key] = value[0] if value.ndim > 1 else value
-            elif isinstance(value, np.ndarray):
-                batch_flat[key] = value[0] if value.ndim > 1 else value
-            else:
-                batch_flat[key] = value
 
         return {
-            'inputs': inputs_flat,
-            'outputs': outputs,
-            'hidden_states': hidden_states,
-            'batch': batch_flat
+            'inputs': inputs,  # [N, T, 5]
+            'outputs': outputs,  # [N, T, 2]
+            'hidden_states': hidden_states,  # [N, H, T]
+            'batch': batch  # List of trial dicts
         }
 
     else:
@@ -454,9 +517,13 @@ def generate_data(task, model, num_trials=None, device='cpu'):
         num_trials = num_trials or 40  # Default to 40 trials
 
         # Generate batch with multiple independent trials
-        batch = task.generate_batch(batch_size=num_trials)
-        inputs = batch['inputs'].to(device)  # (B, T, C)
+        batch = task.generate_batch(batch_size=num_trials)  # List of 1 trial dict
 
+        assert len(batch) == 1, f"Expected 1 trial dict for non-sequence task, got {len(batch)}"
+        trial_dict = batch[0]
+
+        # Get trial data: [B, T, C]
+        inputs = trial_dict['inputs'].to(device)  # [B, T, 5]
         B, T, C = inputs.shape
 
         # Run all trials through model timestep by timestep
@@ -469,31 +536,24 @@ def generate_data(task, model, num_trials=None, device='cpu'):
             hidden_states_list = []
 
             for t in range(T):
-                input_t = inputs[:, t, :]  # [B, C]
-                output_t, hidden = model(input_t, hidden)  # [B, C_out], [B, H]
+                input_t = inputs[:, t, :]  # [B, 5]
+                output_t, hidden = model(input_t, hidden)  # [B, 2], [B, H]
                 outputs_list.append(output_t)
                 hidden_states_list.append(hidden)
 
             # Stack to [B, T, C_out] and [B, T, H]
-            outputs = torch.stack(outputs_list, dim=1)  # (B, T, C_out)
+            outputs = torch.stack(outputs_list, dim=1)  # (B, T, 2)
             hidden_states = torch.stack(hidden_states_list, dim=1)  # (B, T, H)
 
-            # Transpose to [B, C_out, T] and [B, H, T] for analysis compatibility
-            outputs = outputs.transpose(1, 2)  # (B, C_out, T)
-            hidden_states = hidden_states.transpose(1, 2)  # (B, H, T)
-            inputs = inputs.transpose(1, 2)  # (B, C, T)
+        # Transpose hidden_states to [B, H, T] for PCA functions
+        hidden_states = hidden_states.transpose(1, 2)  # (B, H, T)
 
-        # Flatten metadata if nested (for backward compatibility)
-        if 'metadata' in batch:
-            metadata = batch.pop('metadata')
-            batch.update(metadata)
-
-        # Return data in [B, C, T] format for analysis
+        # Return data
         return {
-            'inputs': inputs,
-            'outputs': outputs,
-            'hidden_states': hidden_states,
-            'batch': batch
+            'inputs': inputs,  # [B, T, 5]
+            'outputs': outputs,  # [B, T, 2]
+            'hidden_states': hidden_states,  # [B, H, T]
+            'batch': batch  # List of 1 trial dict
         }
 
 
@@ -502,53 +562,39 @@ def get_metadata(batch, outputs=None, task=None):
     Extract metadata from batch for visualization.
 
     Args:
-        batch: dict containing batch data
-        outputs: Optional model outputs for computing decisions
+        batch: List of trial dicts (new batch format)
+        outputs: Optional model outputs [N, T, 2] for computing decisions
         task: Optional task object (required if outputs provided)
 
     Returns:
-        dict with metadata including rule, has_instruction, is_switch, etc.
+        dict with metadata arrays of length N (num_trials)
     """
-    # Helper function to safely extract and flatten batch data
-    def _extract_field(field_name):
-        if field_name not in batch:
-            return None
-        value = batch[field_name]
-        if isinstance(value, (torch.Tensor, np.ndarray)):
-            return value[0] if value.ndim > 1 else value
-        return value
+    # Extract metadata - handle both sequence (N dicts with B=1) and non-sequence (1 dict with B=N)
+    if len(batch) > 1:
+        # Sequence task: N trial dicts, each with B=1
+        metadata = {}
+        for key in batch[0]['metadata'].keys():
+            metadata[key] = np.array([trial_dict['metadata'][key][0] for trial_dict in batch])
+    else:
+        # Non-sequence task: 1 trial dict with B=num_trials
+        metadata = batch[0]['metadata'].copy()
 
-    # Extract basic metadata
-    metadata = {
-        'rule': _extract_field('rule'),
-        't_m': _extract_field('t_m'),
-        't_s': _extract_field('t_s'),
-        'stim_direction': _extract_field('stim_direction')
-    }
-
-    # Add sequence-specific fields if they exist
-    if 'has_instruction' in batch:
-        metadata['has_instruction'] = _extract_field('has_instruction')
-    if 'is_switch' in batch:
-        metadata['is_switch'] = _extract_field('is_switch')
-
-    # Compute decisions if outputs provided (decision = model's predicted direction)
+    # Compute decisions if outputs provided
     if outputs is not None and task is not None:
-        trial_lengths = _extract_field('trial_length')
-        if trial_lengths is not None:
-            N = len(trial_lengths)
-            decisions = []
+        N = outputs.shape[0]
+        decisions = []
 
-            for i in range(N):
-                trial_length = trial_lengths[i]
-                eval_start = trial_length - int(300 / task.dt)
+        for i in range(N):
+            if len(batch) > 1:
+                trial_length = batch[i]['trial_lengths'][0].item()
+            else:
+                trial_length = batch[0]['trial_lengths'][i].item()
 
-                decision_pred = outputs[i, 0, eval_start:trial_length].mean().item()
+            eval_start = trial_length - int(300 / task.dt)
+            decision_pred = outputs[i, eval_start:trial_length, 0].mean().item()
+            decisions.append(1 if decision_pred > 0 else -1)
 
-                # Decision is the predicted direction: +1 for right, -1 for left
-                decisions.append(1 if decision_pred > 0 else -1)
-
-            metadata['decision'] = np.array(decisions)
+        metadata['decision'] = np.array(decisions)
 
     return metadata
 
@@ -558,12 +604,10 @@ def plot_batch_trials(batch, outputs=None, targets=None, task=None,
     """
     Plot trials from a batch with inputs, outputs, and targets.
 
-    Handles both sequence tasks (4D tensors with reward) and non-sequence tasks (3D tensors).
-
     Args:
-        batch: dict containing batch data
-        outputs: Optional model outputs
-        targets: Optional target outputs
+        batch: List of trial dicts (new batch format)
+        outputs: Optional model outputs [N, T, 2]
+        targets: Optional target outputs [N, T, 2]
         task: Task object with dt attribute
         num_trials: Number of trials to plot
         save_dir: Optional directory to save plots
@@ -571,39 +615,38 @@ def plot_batch_trials(batch, outputs=None, targets=None, task=None,
     Returns:
         list of figure objects
     """
-    # Helper function to extract batch fields
-    def _get_field(field_name, index):
-        if field_name not in batch:
-            return None
-        value = batch[field_name]
-        if isinstance(value, (torch.Tensor, np.ndarray)):
-            # Handle 2D arrays (sequence) or 1D arrays (non-sequence)
-            if value.ndim > 1:
-                return value[0][index]
-            else:
-                return value[index]
-        return None
+    # Get metadata for all trials
+    metadata = get_metadata(batch)
 
-    trial_lengths = batch['trial_length'][0] if batch['trial_length'].ndim > 1 else batch['trial_length']
-    num_trials_to_plot = min(num_trials, len(trial_lengths))
-    total_trials = len(trial_lengths)
+    # Determine total number of trials
+    if len(batch) > 1:
+        # Sequence task: N trial dicts with B=1
+        total_trials = len(batch)
+    else:
+        # Non-sequence task: 1 trial dict with B=num_trials
+        total_trials = len(batch[0]['trial_lengths'])
 
-    inputs = batch['inputs'][0] if batch['inputs'].ndim > 3 else batch['inputs']
-    if targets is not None:
-        targets = batch['targets'][0] if batch['targets'].ndim > 3 else batch['targets']
+    num_trials_to_plot = min(num_trials, total_trials)
 
-    # Check number of input channels
-    num_input_channels = inputs.shape[1]
-    has_reward = num_input_channels > 5  # Channel 5 is reward in sequence tasks
-
-    # Extract metadata for block structure
-    rules = batch['rule'][0] if batch['rule'].ndim > 1 else batch['rule']
-    has_instruction = batch['has_instruction'][0] if 'has_instruction' in batch and batch['has_instruction'].ndim > 1 else batch.get('has_instruction', None)
+    # Extract data for plotting
+    rules = metadata['rule']
+    has_instruction = metadata.get('has_instruction', None)
 
     figures = []
 
     for i in range(num_trials_to_plot):
-        trial_length = trial_lengths[i]
+        # Get trial data
+        if len(batch) > 1:
+            # Sequence task: trial i is in batch[i]
+            trial_inputs = batch[i]['inputs'][0].numpy()  # [T, 5]
+            trial_targets = batch[i]['targets'][0].numpy() if targets is None else None  # [T, 2]
+            trial_length = batch[i]['trial_lengths'][0].item()
+        else:
+            # Non-sequence task: trial i is batch element i in batch[0]
+            trial_inputs = batch[0]['inputs'][i].numpy()  # [T, 5]
+            trial_targets = batch[0]['targets'][i].numpy() if targets is None else None  # [T, 2]
+            trial_length = batch[0]['trial_lengths'][i].item()
+
         time_ms = np.arange(trial_length) * task.dt
 
         # Create figure with block structure at top
@@ -648,22 +691,19 @@ def plot_batch_trials(batch, outputs=None, targets=None, task=None,
 
         axes = [fig.add_subplot(gs[j]) for j in range(1, 4)]
 
-        # Top: Inputs
+        # Top: Inputs (trial_inputs is [T, 5])
         ax = axes[0]
-        ax.plot(time_ms, inputs[i, 0, :trial_length], label='Timing stimulus', linewidth=1.5)
-        ax.plot(time_ms, inputs[i, 1, :trial_length], label='Direction cue', linewidth=1.5)
-        ax.plot(time_ms, inputs[i, 2, :trial_length], label='H fixation', linewidth=1.5, alpha=0.7)
-        ax.plot(time_ms, inputs[i, 3, :trial_length], label='V fixation', linewidth=1.5, alpha=0.7)
-        ax.plot(time_ms, inputs[i, 4, :trial_length], label='Rule cue', linewidth=1.5)
-        # Only plot reward channel if it exists
-        if has_reward:
-            ax.plot(time_ms, inputs[i, 5, :trial_length], label='Reward', linewidth=1.5)
+        ax.plot(time_ms, trial_inputs[:trial_length, 0], label='Center fixation', linewidth=1.5)
+        ax.plot(time_ms, trial_inputs[:trial_length, 1], label='Horizontal cue', linewidth=1.5)
+        ax.plot(time_ms, trial_inputs[:trial_length, 2], label='Rule cue', linewidth=1.5, alpha=0.7)
+        ax.plot(time_ms, trial_inputs[:trial_length, 3], label='Vertical cue', linewidth=1.5, alpha=0.7)
+        ax.plot(time_ms, trial_inputs[:trial_length, 4], label='Reward', linewidth=1.5)
         ax.set_ylabel('Input value')
 
-        # Build title with safe field extraction
-        t_s = _get_field('t_s', i)
-        t_m = _get_field('t_m', i)
-        rule = _get_field('rule', i)
+        # Build title with metadata
+        t_s = metadata['t_s'][i]
+        t_m = metadata['t_m'][i]
+        rule = metadata['rule'][i]
         ax.set_title(f'Trial {i+1}: t_s={t_s:.0f}ms, t_m={t_m:.0f}ms, rule={rule:+.0f}')
         ax.legend(loc='upper right', ncol=3, fontsize=9)
         ax.grid(True, alpha=0.3)
@@ -671,17 +711,13 @@ def plot_batch_trials(batch, outputs=None, targets=None, task=None,
         # Middle: Rule outputs
         ax = axes[1]
         if outputs is not None:
-            ax.plot(time_ms, outputs[i, 2, :trial_length], label='Rule report (model)', linewidth=2, color='C0')
-        if targets is not None:
-            ax.plot(time_ms, targets[i, 2, :trial_length], label='Rule report (target)',
+            trial_outputs = outputs[i].numpy() if isinstance(outputs, torch.Tensor) else outputs[i]  # [T, 2]
+            ax.plot(time_ms, trial_outputs[:trial_length, 1], label='Rule report (model)', linewidth=2, color='C0')
+        if trial_targets is not None:
+            ax.plot(time_ms, trial_targets[:trial_length, 1], label='Rule report (target)',
                    linewidth=2, linestyle='--', color='C0', alpha=0.7)
-        if outputs is not None:
-            ax.plot(time_ms, outputs[i, 3, :trial_length], label='V fixation (model)', linewidth=2, color='C1')
-        if targets is not None:
-            ax.plot(time_ms, targets[i, 3, :trial_length], label='V fixation (target)',
-                   linewidth=2, linestyle='--', color='C1', alpha=0.7)
         ax.set_ylabel('Output value')
-        ax.set_title('Rule Report Outputs')
+        ax.set_title('Rule Report Output')
         ax.legend(loc='upper right', fontsize=9)
         ax.grid(True, alpha=0.3)
         ax.axhline(0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
@@ -689,18 +725,13 @@ def plot_batch_trials(batch, outputs=None, targets=None, task=None,
         # Bottom: Decision outputs
         ax = axes[2]
         if outputs is not None:
-            ax.plot(time_ms, outputs[i, 0, :trial_length], label='Decision (model)', linewidth=2, color='C0')
-        if targets is not None:
-            ax.plot(time_ms, targets[i, 0, :trial_length], label='Decision (target)',
+            ax.plot(time_ms, trial_outputs[:trial_length, 0], label='Decision (model)', linewidth=2, color='C0')
+        if trial_targets is not None:
+            ax.plot(time_ms, trial_targets[:trial_length, 0], label='Decision (target)',
                    linewidth=2, linestyle='--', color='C0', alpha=0.7)
-        if outputs is not None:
-            ax.plot(time_ms, outputs[i, 1, :trial_length], label='H fixation (model)', linewidth=2, color='C1')
-        if targets is not None:
-            ax.plot(time_ms, targets[i, 1, :trial_length], label='H fixation (target)',
-                   linewidth=2, linestyle='--', color='C1', alpha=0.7)
         ax.set_xlabel('Time (ms)')
         ax.set_ylabel('Output value')
-        ax.set_title('Decision Outputs')
+        ax.set_title('Decision Output')
         ax.legend(loc='upper right', fontsize=9)
         ax.grid(True, alpha=0.3)
         ax.axhline(0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
@@ -722,20 +753,17 @@ def _process_single_trial(model, inputs_tensor, device='cpu'):
 
     Args:
         model: RNN model
-        inputs_tensor: [1, C, T] or [C, T] tensor
+        inputs_tensor: [T, C] or [1, T, C] tensor (new batch format)
         device: device to run on
 
     Returns:
-        outputs: [1, C_out, T] tensor
+        outputs: [1, T, C_out] tensor
     """
-    # Ensure batch dimension
+    # Ensure batch dimension: [T, C] -> [1, T, C]
     if inputs_tensor.ndim == 2:
         inputs_tensor = inputs_tensor.unsqueeze(0)
 
-    # Transpose to [1, T, C]
-    inputs_t = inputs_tensor.transpose(1, 2)  # [1, T, C]
-
-    B, T, C = inputs_t.shape
+    B, T, C = inputs_tensor.shape
 
     # Initialize hidden state
     hidden = torch.zeros(B, model.hidden_size, device=device)
@@ -743,12 +771,12 @@ def _process_single_trial(model, inputs_tensor, device='cpu'):
     # Process timestep by timestep
     outputs_list = []
     for t in range(T):
-        input_t = inputs_t[:, t, :]  # [1, C]
+        input_t = inputs_tensor[:, t, :]  # [1, C]
         output_t, hidden = model(input_t, hidden)  # [1, C_out], [1, H]
         outputs_list.append(output_t)
 
-    # Stack to [1, T, C_out] and transpose to [1, C_out, T]
-    outputs = torch.stack(outputs_list, dim=1).transpose(1, 2)
+    # Stack to [1, T, C_out]
+    outputs = torch.stack(outputs_list, dim=1)
 
     return outputs
 
@@ -778,13 +806,13 @@ def compute_psychometric_curves(task, model, num_trials_per_interval=100, rules=
         pro_probs = []
 
         with torch.no_grad():
-            for delta_t in intervals:
+            for t_s in intervals:
                 correct = 0
                 pro_count = 0
                 total = 0
 
                 for _ in range(num_trials_per_interval):
-                    trial = task.generate_trial(delta_t=delta_t)
+                    trial = task.generate_trial(t_s=t_s)
                     inputs = torch.from_numpy(trial['inputs'])  # [C, T]
                     targets = torch.from_numpy(trial['targets']).unsqueeze(0)  # [1, C_out, T]
 
@@ -828,22 +856,22 @@ def compute_psychometric_curves(task, model, num_trials_per_interval=100, rules=
                 rule_accuracies = []
                 rule_pro_probs = []
 
-                for delta_t in intervals:
+                for t_s in intervals:
                     correct = 0
                     pro_count = 0
                     total = 0
 
                     for _ in range(num_trials_per_interval):
-                        trial = task.generate_trial(delta_t=delta_t, rule=rule)
-                        inputs = torch.from_numpy(trial['inputs'])  # [C, T]
-                        targets = torch.from_numpy(trial['targets']).unsqueeze(0)  # [1, C_out, T]
+                        trial = task.generate_trial(t_s=t_s, rule=rule)
+                        inputs = torch.from_numpy(trial['inputs'])  # [T, C]
+                        targets = torch.from_numpy(trial['targets'])  # [T, C_out]
 
-                        outputs = _process_single_trial(model, inputs)
+                        outputs = _process_single_trial(model, inputs)  # [1, T, C_out]
 
                         T = trial['trial_length']
                         eval_start = T - int(300 / task.dt)
-                        decision_pred = outputs[0, 0, eval_start:T].mean().item()
-                        decision_target = targets[0, 0, eval_start:T].mean().item()
+                        decision_pred = outputs[0, eval_start:T, 0].mean().item()
+                        decision_target = targets[eval_start:T, 0].mean().item()
 
                         if (decision_pred > 0) == (decision_target > 0):
                             correct += 1
@@ -910,9 +938,25 @@ def visualize_pca(pca_data, explained_variance, trial_lengths, metadata=None,
         norm = plt.Normalize(vmin=vmin, vmax=vmax)
         scalar_map = cm.ScalarMappable(norm=norm, cmap=cmap)
 
-    # Plot each trial
+    # Collect line segments and colors for batch rendering (performance optimization)
+    if plot_3d:
+        from mpl_toolkits.mplot3d.art3d import Line3DCollection
+        segments_3d = []
+        colors_3d = []
+    else:
+        from matplotlib.collections import LineCollection
+        segments_2d = []
+        colors_2d = []
+
+    # Collect start/end markers
+    start_points = []
+    end_points = []
+    marker_colors = []
+    legend_handles = {}  # Track unique labels for legend
+
+    # Collect all line segments and markers
     for i in range(num_trials):
-        T_trial = trial_lengths[i]
+        T_trial = min(trial_lengths[i], pca_data.shape[1])
 
         # Get color for this trial
         if use_continuous and metadata is not None and color_by in metadata:
@@ -922,39 +966,63 @@ def visualize_pca(pca_data, explained_variance, trial_lengths, metadata=None,
         elif metadata is not None and color_by in metadata:
             color_val = metadata[color_by][i]
             color = color_map.get(color_val, 'gray')
-            # Determine label (only show once per unique value)
-            if color_val in labels and labels[color_val] not in [item.get_label() for item in ax.get_children() if hasattr(item, 'get_label')]:
-                label = labels[color_val]
-            else:
-                label = None
+            label = labels.get(color_val, None)
         else:
             color = f'C{i % 10}'
             label = f'Trial {i+1}' if i == 0 else None
 
-        # Plot trajectory
+        # Add line segment
         if plot_3d:
-            ax.plot(pca_data[i, :T_trial, 0],
-                   pca_data[i, :T_trial, 1],
-                   pca_data[i, :T_trial, 2],
-                   color=color, alpha=0.6, linewidth=1.5, label=label)
+            segment = pca_data[i, :T_trial, :3]
+            segments_3d.append(segment)
+            colors_3d.append(color)
 
-            # Mark start
-            ax.scatter(pca_data[i, 0, 0], pca_data[i, 0, 1], pca_data[i, 0, 2],
-                      color=color, s=50, marker='*', alpha=0.8, zorder=5)
-
-            # Mark end
-            ax.scatter(pca_data[i, T_trial-1, 0], pca_data[i, T_trial-1, 1], pca_data[i, T_trial-1, 2],
-                      color=color, s=50, marker='x', alpha=0.8, zorder=5)
+            # Add start/end markers
+            start_points.append([pca_data[i, 0, 0], pca_data[i, 0, 1], pca_data[i, 0, 2]])
+            end_points.append([pca_data[i, T_trial-1, 0], pca_data[i, T_trial-1, 1], pca_data[i, T_trial-1, 2]])
         else:
-            ax.plot(pca_data[i, :T_trial, 0],
-                   pca_data[i, :T_trial, 1],
-                   color=color, alpha=0.6, linewidth=1.5, label=label)
+            segment = pca_data[i, :T_trial, :2]
+            segments_2d.append(segment)
+            colors_2d.append(color)
 
-            # Mark start and end
-            ax.scatter(pca_data[i, 0, 0], pca_data[i, 0, 1],
-                      color=color, s=50, marker='*', alpha=0.8, zorder=5)
-            ax.scatter(pca_data[i, T_trial-1, 0], pca_data[i, T_trial-1, 1],
-                      color=color, s=50, marker='x', alpha=0.8, zorder=5)
+            # Add start/end markers
+            start_points.append([pca_data[i, 0, 0], pca_data[i, 0, 1]])
+            end_points.append([pca_data[i, T_trial-1, 0], pca_data[i, T_trial-1, 1]])
+
+        marker_colors.append(color)
+
+        # Track label for legend (only add once per unique color_val)
+        if label is not None and label not in legend_handles:
+            legend_handles[label] = color
+
+    # Render all lines as a single collection (much faster for interactive rotation)
+    if plot_3d:
+        line_collection = Line3DCollection(segments_3d, colors=colors_3d,
+                                          linewidths=1.5, alpha=0.6)
+        ax.add_collection(line_collection)
+    else:
+        line_collection = LineCollection(segments_2d, colors=colors_2d,
+                                        linewidths=1.5, alpha=0.6)
+        ax.add_collection(line_collection)
+
+    # Add markers
+    start_points = np.array(start_points)
+    end_points = np.array(end_points)
+
+    if plot_3d:
+        ax.scatter(start_points[:, 0], start_points[:, 1], start_points[:, 2],
+                  c=marker_colors, s=50, marker='*', alpha=0.8, zorder=5)
+        ax.scatter(end_points[:, 0], end_points[:, 1], end_points[:, 2],
+                  c=marker_colors, s=50, marker='x', alpha=0.8, zorder=5)
+    else:
+        ax.scatter(start_points[:, 0], start_points[:, 1],
+                  c=marker_colors, s=50, marker='*', alpha=0.8, zorder=5)
+        ax.scatter(end_points[:, 0], end_points[:, 1],
+                  c=marker_colors, s=50, marker='x', alpha=0.8, zorder=5)
+
+    # Autoscale to fit all data (collections + scatter points)
+    if not plot_3d:
+        ax.autoscale_view()
 
     # Labels
     if plot_3d:
@@ -974,8 +1042,12 @@ def visualize_pca(pca_data, explained_variance, trial_lengths, metadata=None,
         # Add colorbar
         cbar = plt.colorbar(scalar_map, ax=ax, pad=0.1, shrink=0.8)
         cbar.set_label(labels, rotation=270, labelpad=20)
-    else:
-        ax.legend(loc='best')
+    elif legend_handles:
+        # Create manual legend patches for discrete colors
+        from matplotlib.lines import Line2D
+        legend_elements = [Line2D([0], [0], color=color, linewidth=2, label=label)
+                          for label, color in legend_handles.items()]
+        ax.legend(handles=legend_elements, loc='best')
 
     ax.grid(True, alpha=0.3)
 
@@ -1107,7 +1179,7 @@ def animate_pca(pca_data, explained_variance, period_lengths, metadata,
             color = f'C{i % 10}'
 
         # Get trial end position
-        period_len = period_lengths[i]
+        period_len = min(period_lengths[i], pca_data.shape[1])
 
         if plot_3d:
             line, = ax_main.plot([], [], [], color=color, alpha=0.7, linewidth=2)
@@ -1156,7 +1228,7 @@ def animate_pca(pca_data, explained_variance, period_lengths, metadata,
     def animate(frame):
         # Update each trial's trajectory up to current time
         for i in range(num_trials):
-            period_len = period_lengths[i]
+            period_len = min(period_lengths[i], pca_data.shape[1])
 
             if frame < period_len:
                 # Trial is still ongoing
