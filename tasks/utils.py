@@ -179,6 +179,7 @@ class BaseTask:
         v_position_target[rule_report_start:rule_report_end] = rule
         rule_eval_start = rule_report_start + t_grace
         eval_mask[rule_eval_start:rule_report_end, 1] = 1  # Vertical eval
+        loss_mask[rule_report_start:rule_eval_start, 1] = 0.0  # No loss during grace period
         loss_mask[rule_eval_start:rule_report_end, 1] = 5.0  # 5x weight during rule evaluation
 
         # Another fixation delay, timing flashes, and decision response
@@ -192,6 +193,8 @@ class BaseTask:
         h_position_target[timing_response_start:timing_response_end] = decision
         timing_eval_start = timing_response_start + t_grace
         eval_mask[timing_eval_start:timing_response_end, 0] = 1  # Horizontal eval
+        loss_mask[timing_response_start:timing_eval_start, 0] = 0.0  # No loss during grace period
+        loss_mask[timing_eval_start:timing_response_end, 0] = 2.0  # 2x weight during decision evaluation
 
         inputs = np.stack(
             [center_fixation, horizontal_cue, rule_cue, vertical_cue, reward_cue], axis=0
@@ -419,7 +422,8 @@ class BaseTask:
         batch: dict,
         batch_idx: int = 0,
         iti_inputs: Optional[np.ndarray] = None,
-        iti_outputs: Optional[np.ndarray] = None
+        iti_outputs: Optional[np.ndarray] = None,
+        loss_mask: Optional[np.ndarray] = None
     ) -> plt.Figure:
         """Create standard trial visualization. Can be overridden for custom figures.
 
@@ -433,6 +437,7 @@ class BaseTask:
             batch_idx: Batch element index (default 0)
             iti_inputs: Optional [iti_len, 5] ITI input array
             iti_outputs: Optional [iti_len, 2] ITI output array
+            loss_mask: Optional [T, 2] loss mask array
         """
         fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
 
@@ -459,6 +464,10 @@ class BaseTask:
             # Extend targets and eval_mask with zeros for ITI
             targets = np.concatenate([targets[:T], np.zeros((iti_len, 2))], axis=0)
             eval_mask = np.concatenate([eval_mask[:T], np.zeros((iti_len, 2))], axis=0)
+
+            # Extend loss_mask with zeros for ITI if provided
+            if loss_mask is not None:
+                loss_mask = np.concatenate([loss_mask[:T], np.zeros((iti_len, 2))], axis=0)
 
             T = T + iti_len
 
@@ -489,6 +498,21 @@ class BaseTask:
 
         # Bottom subplot: Outputs + targets (outputs/targets are [T, 2])
         ax = axes[1]
+
+        # Shade regions where loss_mask is 0 (grace periods) - add first so it's in background
+        if loss_mask is not None:
+            for ch in [0, 1]:
+                # Find contiguous regions where loss_mask is 0
+                zero_mask = (loss_mask[:T, ch] == 0)
+                if zero_mask.any():
+                    # Find transitions
+                    transitions = np.diff(np.concatenate([[False], zero_mask, [False]]).astype(int))
+                    starts = np.where(transitions == 1)[0]
+                    ends = np.where(transitions == -1)[0]
+
+                    for start, end in zip(starts, ends):
+                        ax.axvspan(time_ms[start], time_ms[end-1], alpha=0.15, color='gray', zorder=0)
+
         ax.plot(time_ms, outputs[:T, 0], label='Horizontal output', linewidth=2, color='C0')
         ax.plot(time_ms, targets[:T, 0], label='Horizontal target', linewidth=2, linestyle='--', color='C0', alpha=0.7)
         ax.plot(time_ms, outputs[:T, 1], label='Vertical output', linewidth=2, color='C1')
@@ -511,12 +535,6 @@ class BaseTask:
             boundary_time = iti_boundary * self.dt
             for ax in axes:
                 ax.axvline(boundary_time, color='red', linestyle='--', linewidth=2, alpha=0.7)
-                # Add ITI label
-                y_min, y_max = ax.get_ylim()
-                ax.text(boundary_time + (time_ms[-1] - boundary_time) / 2, y_max * 0.9,
-                       'ITI', ha='center', va='top', fontsize=10, color='red',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='red', alpha=0.7))
-
         plt.tight_layout()
         return fig
 

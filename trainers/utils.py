@@ -137,7 +137,7 @@ class BaseTrainer:
             Loss value (float)
         """
         # Forward pass with ITI processing
-        all_outputs, _, _, _ = self._forward_pass(batch, task, include_iti=True)
+        all_outputs, _, _, _, _ = self._forward_pass(batch, task, include_iti=True)
 
         # Gather targets and loss masks
         all_targets = [trial['targets'] for trial in batch]
@@ -198,9 +198,9 @@ class BaseTrainer:
 
         Returns:
             If return_hidden=False:
-                (all_outputs, all_inputs, all_targets, all_masks) - lists of tensors per trial
+                (all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks) - lists of tensors per trial
             If return_hidden=True:
-                (all_outputs, all_inputs, all_targets, all_masks, all_hidden, iti_regions,
+                (all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks, all_hidden, iti_regions,
                  trial_boundaries, all_iti_inputs, all_iti_targets, all_iti_outputs)
                 where:
                 - all_hidden: list of hidden states [B, H] at each timestep
@@ -214,7 +214,7 @@ class BaseTrainer:
         B = batch[0]['inputs'].shape[0]
         h = torch.zeros(B, self.model.hidden_size)
 
-        all_outputs, all_inputs, all_targets, all_masks = [], [], [], []
+        all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks = [], [], [], [], []
         all_hidden = [] if return_hidden else None
         iti_regions = [] if return_hidden else None
         trial_boundaries = [0] if return_hidden else None
@@ -241,7 +241,8 @@ class BaseTrainer:
             all_outputs.append(trial_outputs)
             all_inputs.append(trial_inputs)
             all_targets.append(trial['targets'])
-            all_masks.append(trial['eval_mask'])
+            all_eval_masks.append(trial['eval_mask'])
+            all_loss_masks.append(trial['loss_mask'])
 
             if return_hidden:
                 trial_boundaries.append(len(all_hidden))
@@ -281,9 +282,9 @@ class BaseTrainer:
                     trial_boundaries.append(len(all_hidden))
 
         if return_hidden:
-            return (all_outputs, all_inputs, all_targets, all_masks, all_hidden,
+            return (all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks, all_hidden,
                     iti_regions, trial_boundaries, all_iti_inputs, all_iti_targets, all_iti_outputs)
-        return all_outputs, all_inputs, all_targets, all_masks
+        return all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks
 
     def eval_task(self, task: BaseTask, eval_batch, log_figures: bool = False,
                   task_name: str = '', num_trials: int = 1) -> dict:
@@ -303,16 +304,16 @@ class BaseTrainer:
         with torch.no_grad():
             # Get ITI data if logging figures
             if log_figures and hasattr(task, '_generate_iti_inputs'):
-                (all_outputs, all_inputs, all_targets, all_masks, all_hidden,
+                (all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks, all_hidden,
                  iti_regions, trial_boundaries, all_iti_inputs, all_iti_targets, all_iti_outputs) = \
                     self._forward_pass(eval_batch, task, include_iti=True, return_hidden=True)
             else:
-                all_outputs, all_inputs, all_targets, all_masks = self._forward_pass(eval_batch, task)
+                all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks = self._forward_pass(eval_batch, task)
 
             # Concatenate for accuracy computation
             outputs = torch.cat(all_outputs, dim=1)
             targets = torch.cat(all_targets, dim=1)
-            eval_mask = torch.cat(all_masks, dim=1)
+            eval_mask = torch.cat(all_eval_masks, dim=1)
 
             # Compute accuracies
             metrics = task.compute_accuracy(outputs, targets, eval_mask, eval_batch)
@@ -328,7 +329,8 @@ class BaseTrainer:
                     inputs_np = all_inputs[trial_idx][batch_idx].numpy()  # [T, 5]
                     outputs_np = all_outputs[trial_idx][batch_idx].numpy()  # [T, 2]
                     targets_np = all_targets[trial_idx][batch_idx].numpy()  # [T, 2]
-                    mask_np = all_masks[trial_idx][batch_idx].numpy()  # [T, 2]
+                    eval_mask_np = all_eval_masks[trial_idx][batch_idx].numpy()  # [T, 2]
+                    loss_mask_np = all_loss_masks[trial_idx][batch_idx].numpy()  # [T, 2]
 
                     # Get ITI data if available (only if not last trial)
                     iti_inputs_np = None
@@ -341,12 +343,13 @@ class BaseTrainer:
                         inputs=inputs_np,
                         outputs=outputs_np,
                         targets=targets_np,
-                        eval_mask=mask_np,
+                        eval_mask=eval_mask_np,
                         trial_idx=trial_idx,
                         batch=eval_batch,
                         batch_idx=batch_idx,
                         iti_inputs=iti_inputs_np,
-                        iti_outputs=iti_outputs_np
+                        iti_outputs=iti_outputs_np,
+                        loss_mask=loss_mask_np
                     )
                     figure_name = f'{task_name}/trial_{trial_idx+1}' if task_name else f'trial_{trial_idx+1}'
                     self.writer.add_figure(figure_name, fig, self.step)
