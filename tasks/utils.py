@@ -102,9 +102,11 @@ class BaseTask:
 
     def _compute_decision(self, t_s: float, stim_direction: float, rule: float) -> float:
         """Compute decision based on rule, true stimulus time, and direction."""
-        if rule == 1.0:
+        if np.isclose(t_s, self.decision_threshold):
+            return np.random.choice([-stim_direction, stim_direction])
+        if rule == 1.0: # C1 in Morteza's paper
             return stim_direction if t_s < self.decision_threshold else -stim_direction
-        elif rule == -1.0:
+        elif rule == -1.0: # C2
             return -stim_direction if t_s < self.decision_threshold else stim_direction
         else:
             raise NotImplementedError(f"Unknown rule={rule}")
