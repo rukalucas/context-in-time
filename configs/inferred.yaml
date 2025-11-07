@@ -7,36 +7,23 @@ tasks:
     weight: 1.0
     task:
       dt: 10.0
-      pulse_width: 50.0
-      decision_threshold: 850.0
-      delta_t_min: 530.0
-      delta_t_max: 1170.0
-      fixation_delay_min: 400.0
-      fixation_delay_max: 900.0
-      rule_report_period: 700.0
-      response_period: 700.0
-      grace_period: 400.0
       input_noise_std: 0.05
-      inter_trial_interval: 1000.0
-      reward_duration: 500.0
-      w_m: 0.1
-      block_min: 10
-      block_mean: 6
+      w_m: 0.05
       trials_per_sequence: 40
 
 model:
-  input_size: 6
+  input_size: 5
   hidden_size: 256
-  output_size: 4
+  output_size: 2
   tau: 100.0
   dt: 10.0
   activation: elu
   noise_std: 0.05
 
 training:
-  learning_rate: 0.0001
+  learning_rate: 1e-4
   batch_size: 64
   total_steps: 4000
   log_interval: 20
   checkpoint_interval: 500
-  log_dir: logs/inferred_test
+  log_dir: logs/inferred
