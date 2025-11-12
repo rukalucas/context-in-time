@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=context_in_time
-#SBATCH --output=logs/slurm_%j.out
-#SBATCH --error=logs/slurm_%j.err
+#SBATCH --output=logs/slurm_logs/slurm_%j.out
+#SBATCH --error=logs/slurm_logs/slurm_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
