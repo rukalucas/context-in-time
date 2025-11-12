@@ -31,7 +31,19 @@ def create_tasks(conf: DictConfig) -> list:
 def create_model(conf: DictConfig):
     """Create model instance from config."""
     from models.rnn import RNN
-    return RNN(**conf.model)
+    from models.modular_rnn import ModularRNN
+
+    model_type = conf.model.get('model_type', 'rnn')
+
+    if model_type == 'rnn':
+        # Remove model_type from params before passing to constructor
+        model_params = {k: v for k, v in conf.model.items() if k != 'model_type'}
+        return RNN(**model_params)
+    elif model_type == 'modular_rnn':
+        model_params = {k: v for k, v in conf.model.items() if k != 'model_type'}
+        return ModularRNN(**model_params)
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}")
 
 
 def create_trainer(conf: DictConfig, model, log_dir: str = None):
@@ -218,7 +230,16 @@ def print_config(conf: DictConfig):
             print(f"Orthogonal projection: alpha={alpha}")
 
     # Model/training info
-    print(f"Model: input={conf.model.get('input_size', 5)}, hidden={conf.model.get('hidden_size', 128)}")
+    model_type = conf.model.get('model_type', 'rnn')
+    if model_type == 'rnn':
+        print(f"Model: RNN, input={conf.model.get('input_size', 5)}, hidden={conf.model.get('hidden_size', 128)}")
+    elif model_type == 'modular_rnn':
+        h1 = conf.model.get('hidden_size_1', 64)
+        h2 = conf.model.get('hidden_size_2', 64)
+        tau1 = conf.model.get('tau_1', 300)
+        tau2 = conf.model.get('tau_2', 100)
+        rank_pct = conf.model.get('cross_module_rank_pct', 0.1)
+        print(f"Model: ModularRNN, input={conf.model.get('input_size', 5)}, hidden=[{h1}, {h2}], tau=[{tau1}, {tau2}], rank={rank_pct:.1%}")
     optimizer_type = conf.training.get('optimizer_type', 'adam')
     lr = conf.training.get('learning_rate', 1e-3)
     batch = conf.training.get('batch_size', 32)

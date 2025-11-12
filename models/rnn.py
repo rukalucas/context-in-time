@@ -18,7 +18,7 @@ class RNN(nn.Module):
         tau: float = 100.0,  # ms
         dt: float = 10.0,  # ms
         activation: str = 'elu',
-        noise_std: float = 0.1,
+        noise_std: float = 0.05,
     ):
         super().__init__()
         self.input_size = input_size
@@ -82,7 +82,7 @@ class RNN(nn.Module):
         # where α = dt/τ
 
         # Generate noise: ξ = σ_rec * N(0,1)
-        noise = torch.randn(batch_size, self.hidden_size) * self.noise_std
+        noise = torch.randn(batch_size, self.hidden_size, device=input.device) * self.noise_std
 
         # Compute total input i(t)
         rec_input = self.w_rec(hidden)  # [batch_size, hidden_size]
