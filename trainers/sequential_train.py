@@ -64,6 +64,11 @@ class SequentialTrainer(BaseTrainer):
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
+        # Define summary metrics for accuracy (max)
+        for task_name in task_names:
+            wandb.define_metric(f"{task_name}/decision_accuracy", summary="max")
+            wandb.define_metric(f"{task_name}/rule_accuracy", summary="max")
+
     def _update_task_parameter(self) -> None:
         """Update task parameter based on schedule for current task."""
         schedule = self.task_param_schedules[self.current_task_idx]

@@ -137,8 +137,15 @@ class BaseTrainer:
                 # Remove None values
                 slurm_info = {k: v for k, v in slurm_info.items() if v is not None}
 
-                # Update wandb config with SLURM info
-                wandb.config.update({'slurm': slurm_info})
+                # When resuming, append to list of SLURM jobs; otherwise create new list
+                if resume and 'slurm_jobs' in wandb.config:
+                    # Get existing list and append new job
+                    existing_jobs = list(wandb.config.slurm_jobs)
+                    existing_jobs.append(slurm_info)
+                    wandb.config.update({'slurm_jobs': existing_jobs}, allow_val_change=True)
+                else:
+                    # Fresh run or first SLURM job - create list
+                    wandb.config.update({'slurm_jobs': [slurm_info]}, allow_val_change=True)
 
                 # Add job ID as a tag for easy filtering
                 if wandb.run:
