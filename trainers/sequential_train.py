@@ -25,10 +25,12 @@ class SequentialTrainer(BaseTrainer):
         num_eval_samples: int = 100,
         total_steps: Optional[int] = None,  # Ignored, here for config compatibility
         learning_rate: float = 1e-3,  # Kept explicit for reset_optimizer_between_tasks
-        **kwargs
+        **kwargs,
     ):
         if len(tasks) != len(task_names) != len(task_num_steps):
-            raise ValueError("tasks, task_names, and task_num_steps must have same length")
+            raise ValueError(
+                "tasks, task_names, and task_num_steps must have same length"
+            )
 
         # Default all tasks to eval=True if not specified
         if task_eval_flags is None:
@@ -59,7 +61,9 @@ class SequentialTrainer(BaseTrainer):
         self.started_from_checkpoint = False  # Track if we loaded from checkpoint
 
         # Validate dt consistency between model and tasks
-        assert all(task.dt == model.dt for task in tasks), f"All tasks must have same dt as model (model.dt={model.dt})"
+        assert all(task.dt == model.dt for task in tasks), (
+            f"All tasks must have same dt as model (model.dt={model.dt})"
+        )
 
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
@@ -76,9 +80,9 @@ class SequentialTrainer(BaseTrainer):
             return
 
         # Extract schedule parameters
-        param_name = schedule['param_name']
-        start_value = schedule['start_value']
-        end_value = schedule['end_value']
+        param_name = schedule["param_name"]
+        start_value = schedule["start_value"]
+        end_value = schedule["end_value"]
         num_steps = self.task_num_steps[self.current_task_idx]
 
         # Compute linear interpolation
@@ -99,52 +103,57 @@ class SequentialTrainer(BaseTrainer):
                 continue
 
             # Compute accuracies and optionally log trial figures
-            task_metrics = self.eval_task(task, eval_batch, log_figures=True,
-                                         task_name=task_name, num_trials=1)
+            task_metrics = self.eval_task(
+                task, eval_batch, log_figures=True, task_name=task_name, num_trials=1
+            )
 
             # Add task prefix
             for key, value in task_metrics.items():
-                all_metrics[f'{task_name}/{key}'] = value
+                all_metrics[f"{task_name}/{key}"] = value
 
         # Add loss if provided
         if loss is not None:
-            all_metrics['loss'] = loss
+            all_metrics["loss"] = loss
 
         # Add current task index
-        all_metrics['train/current_task_idx'] = self.current_task_idx
+        all_metrics["train/current_task_idx"] = self.current_task_idx
 
         # Log scheduled parameter value if exists
         schedule = self.task_param_schedules[self.current_task_idx]
         if schedule is not None:
-            param_name = schedule['param_name']
+            param_name = schedule["param_name"]
             task = self.tasks[self.current_task_idx]
             param_value = getattr(task, param_name)
-            all_metrics[f'train/{param_name}'] = param_value
+            all_metrics[f"train/{param_name}"] = param_value
 
         # Print evaluation metrics
-        print(f"Evaluation after step {self.step}: " +
-              ", ".join([f"{k}={v:.4f}" for k, v in all_metrics.items()]))
+        print(
+            f"Evaluation after step {self.step}: "
+            + ", ".join([f"{k}={v:.4f}" for k, v in all_metrics.items()])
+        )
 
         # Log metrics to wandb
         wandb.log(all_metrics, step=self.step)
 
         # Save latest checkpoint
         extra_state = {
-            'current_task_idx': self.current_task_idx,
-            'current_task_step': self.current_task_step
+            "current_task_idx": self.current_task_idx,
+            "current_task_step": self.current_task_step,
         }
-        self.save_checkpoint(filename='latest.pt', extra_state=extra_state)
+        self.save_checkpoint(filename="latest.pt", extra_state=extra_state)
 
-    def save_checkpoint(self, filename: str = 'checkpoint.pt') -> None:
+    def save_checkpoint(self, filename: str = "checkpoint.pt") -> None:
         """Save model checkpoint with curriculum state."""
         extra_state = {
-            'current_task_idx': self.current_task_idx,
-            'current_task_step': self.current_task_step
+            "current_task_idx": self.current_task_idx,
+            "current_task_step": self.current_task_step,
         }
 
         super().save_checkpoint(filename=filename, extra_state=extra_state)
 
-    def load_checkpoint(self, path: str | Path = None, reset_counters: bool = False) -> dict:
+    def load_checkpoint(
+        self, path: str | Path = None, reset_counters: bool = False
+    ) -> dict:
         """Load model checkpoint and restore curriculum state."""
         extra_state = super().load_checkpoint(path, reset_counters)
 
@@ -154,10 +163,10 @@ class SequentialTrainer(BaseTrainer):
             self.current_task_step = 0
             self.started_from_checkpoint = True
         else:
-            if 'current_task_idx' in extra_state:
-                self.current_task_idx = extra_state['current_task_idx']
-            if 'current_task_step' in extra_state:
-                self.current_task_step = extra_state['current_task_step']
+            if "current_task_idx" in extra_state:
+                self.current_task_idx = extra_state["current_task_idx"]
+            if "current_task_step" in extra_state:
+                self.current_task_step = extra_state["current_task_step"]
 
         return extra_state
 
@@ -178,12 +187,16 @@ class SequentialTrainer(BaseTrainer):
             # Resuming - calculate remaining steps
             steps_remaining = total_steps - self.step
             final_step = total_steps
-            print(f"\nResuming sequential multi-task training for {steps_remaining} remaining steps (step {self.step} → {final_step})...")
+            print(
+                f"\nResuming sequential multi-task training for {steps_remaining} remaining steps (step {self.step} → {final_step})..."
+            )
         elif self.started_from_checkpoint:
             print("\nStarting training from checkpoint initialization...")
             print(f"Model weights loaded, training {total_steps} steps from scratch")
         else:
-            print(f"\nStarting sequential multi-task training for {total_steps} total steps...")
+            print(
+                f"\nStarting sequential multi-task training for {total_steps} total steps..."
+            )
 
         print(f"Tasks: {self.task_names}")
         print(f"Steps per task: {self.task_num_steps}")
@@ -215,10 +228,12 @@ class SequentialTrainer(BaseTrainer):
                 # Reset optimizer if configured to do so
                 if self.reset_optimizer_between_tasks:
                     print(f"Resetting optimizer for task {task_name}")
-                    self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+                    self.optimizer = optim.Adam(
+                        self.model.parameters(), lr=self.learning_rate
+                    )
 
-            print(f"\n{'='*60}")
-            print(f"Starting task {task_idx+1}/{len(self.tasks)}: {task_name}")
+            print(f"\n{'=' * 60}")
+            print(f"Starting task {task_idx + 1}/{len(self.tasks)}: {task_name}")
             if starting_step > 0:
                 print(f"Resuming from step {starting_step}/{num_steps}...")
             else:
@@ -227,19 +242,23 @@ class SequentialTrainer(BaseTrainer):
             # Print schedule info if exists
             schedule = self.task_param_schedules[task_idx]
             if schedule is not None:
-                print(f"Parameter schedule: {schedule['param_name']} from {schedule['start_value']:.3f} to {schedule['end_value']:.3f}")
+                print(
+                    f"Parameter schedule: {schedule['param_name']} from {schedule['start_value']:.3f} to {schedule['end_value']:.3f}"
+                )
 
-            print(f"{'='*60}\n")
+            print(f"{'=' * 60}\n")
 
             loss = None  # Initialize for first eval
             for local_step in range(starting_step, num_steps):
                 # Evaluation and logging (before training step)
                 if self.current_task_step % self.log_interval == 0:
                     self.eval(loss)
-                    print(f"Task {task_idx+1}/{len(self.tasks)} [{task_name}] "
-                          f"Step {self.current_task_step}/{num_steps} "
-                          f"(Global: {self.step}/{total_steps})"
-                          + (f": loss={loss:.4f}" if loss is not None else ""))
+                    print(
+                        f"Task {task_idx + 1}/{len(self.tasks)} [{task_name}] "
+                        f"Step {self.current_task_step}/{num_steps} "
+                        f"(Global: {self.step}/{total_steps})"
+                        + (f": loss={loss:.4f}" if loss is not None else "")
+                    )
 
                 # Training step
                 self.model.train()
@@ -254,7 +273,7 @@ class SequentialTrainer(BaseTrainer):
 
                 # Checkpointing
                 if self.step % self.checkpoint_interval == 0:
-                    self.save_checkpoint(f'{self.step}.pt')
+                    self.save_checkpoint(f"{self.step}.pt")
 
         print("\nTraining complete!")
 

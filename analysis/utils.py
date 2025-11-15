@@ -31,22 +31,22 @@ def compute_trial_events(batch, task):
         is_sequence = True
     else:
         # Non-sequence task: 1 trial dict with B=num_trials
-        num_trials = len(batch[0]['trial_lengths'])
+        num_trials = len(batch[0]["trial_lengths"])
         is_sequence = False
 
     # Initialize event arrays
     events = {
-        'trial_start': np.zeros(num_trials, dtype=int),
-        'cue_onset': np.zeros(num_trials, dtype=int),
-        'rule_report_end': np.zeros(num_trials, dtype=int),
-        'timing_start': np.zeros(num_trials, dtype=int),
-        'first_pulse': np.zeros(num_trials, dtype=int),
-        'decision_start': np.zeros(num_trials, dtype=int),
-        'trial_end': np.zeros(num_trials, dtype=int),
+        "trial_start": np.zeros(num_trials, dtype=int),
+        "cue_onset": np.zeros(num_trials, dtype=int),
+        "rule_report_end": np.zeros(num_trials, dtype=int),
+        "timing_start": np.zeros(num_trials, dtype=int),
+        "first_pulse": np.zeros(num_trials, dtype=int),
+        "decision_start": np.zeros(num_trials, dtype=int),
+        "trial_end": np.zeros(num_trials, dtype=int),
     }
 
     if is_sequence:
-        events['iti_end'] = np.zeros(num_trials, dtype=int)
+        events["iti_end"] = np.zeros(num_trials, dtype=int)
 
     # Get task parameters
     rule_report_duration = int(task.rule_report_period / task.dt)
@@ -56,22 +56,22 @@ def compute_trial_events(batch, task):
     for i in range(num_trials):
         # Get trial-specific metadata
         if is_sequence:
-            total_length = batch[i]['trial_lengths'][0].item()  # Includes ITI
-            initial_fix_rule = batch[i]['metadata']['initial_fixation_rule'][0]
-            initial_fix_timing = batch[i]['metadata']['initial_fixation_timing'][0]
-            t_m = batch[i]['metadata']['t_m'][0]
-            if 'iti_start' in batch[i]['metadata']:
-                iti_start = batch[i]['metadata']['iti_start'][0]
-                iti_length = batch[i]['metadata']['iti_length'][0]
+            total_length = batch[i]["trial_lengths"][0].item()  # Includes ITI
+            initial_fix_rule = batch[i]["metadata"]["initial_fixation_rule"][0]
+            initial_fix_timing = batch[i]["metadata"]["initial_fixation_timing"][0]
+            t_m = batch[i]["metadata"]["t_m"][0]
+            if "iti_start" in batch[i]["metadata"]:
+                iti_start = batch[i]["metadata"]["iti_start"][0]
+                iti_length = batch[i]["metadata"]["iti_length"][0]
                 # For sequence tasks, actual trial ends at iti_start (not total_length which includes ITI)
                 trial_length = int(iti_start)
             else:
                 trial_length = total_length
         else:
-            trial_length = batch[0]['trial_lengths'][i].item()
-            initial_fix_rule = batch[0]['metadata']['initial_fixation_rule'][i]
-            initial_fix_timing = batch[0]['metadata']['initial_fixation_timing'][i]
-            t_m = batch[0]['metadata']['t_m'][i]
+            trial_length = batch[0]["trial_lengths"][i].item()
+            initial_fix_rule = batch[0]["metadata"]["initial_fixation_rule"][i]
+            initial_fix_timing = batch[0]["metadata"]["initial_fixation_timing"][i]
+            t_m = batch[0]["metadata"]["t_m"][i]
 
         # Convert to steps
         t_initial_fix_rule = int(initial_fix_rule / task.dt)
@@ -79,19 +79,22 @@ def compute_trial_events(batch, task):
         t_m_steps = int(t_m / task.dt)
 
         # Compute event timesteps (all relative to trial start, not including ITI)
-        events['trial_start'][i] = 0
-        events['cue_onset'][i] = t_initial_fix_rule
-        events['rule_report_end'][i] = t_initial_fix_rule + rule_report_duration
-        events['timing_start'][i] = events['rule_report_end'][i]
-        events['first_pulse'][i] = events['timing_start'][i] + t_initial_fix_timing
-        events['decision_start'][i] = trial_length - response_duration
+        events["trial_start"][i] = 0
+        events["cue_onset"][i] = t_initial_fix_rule
+        events["rule_report_end"][i] = t_initial_fix_rule + rule_report_duration
+        events["timing_start"][i] = events["rule_report_end"][i]
+        events["first_pulse"][i] = events["timing_start"][i] + t_initial_fix_timing
+        events["decision_start"][i] = trial_length - response_duration
         # Verify timing: decision_start should be first_pulse + t_m
-        assert events['decision_start'][i] == events['first_pulse'][i] + t_m_steps, \
+        assert events["decision_start"][i] == events["first_pulse"][i] + t_m_steps, (
             f"Computed event timings do not align with trial length for trial {i}."
-        events['trial_end'][i] = trial_length  # End of trial proper (= iti_start for sequence tasks)
+        )
+        events["trial_end"][i] = (
+            trial_length  # End of trial proper (= iti_start for sequence tasks)
+        )
 
-        if is_sequence and 'iti_start' in batch[i]['metadata']:
-            events['iti_end'][i] = int(iti_start + iti_length)
+        if is_sequence and "iti_start" in batch[i]["metadata"]:
+            events["iti_end"][i] = int(iti_start + iti_length)
 
     return events
 
@@ -129,18 +132,14 @@ def _extract_period_boundaries(batch, task, num_trials):
     # Initialize period info based on task type
     if is_sequence_task:
         period_info = {
-            'rule_report': [],
-            'timing': [],
-            'decision': [],
-            'pre_iti': [],
-            'post_iti': []
+            "rule_report": [],
+            "timing": [],
+            "decision": [],
+            "pre_iti": [],
+            "post_iti": [],
         }
     else:
-        period_info = {
-            'rule_report': [],
-            'timing': [],
-            'decision': []
-        }
+        period_info = {"rule_report": [], "timing": [], "decision": []}
 
     # Get task parameters
     pulse_width_steps = int(task.pulse_width / task.dt)
@@ -152,21 +151,21 @@ def _extract_period_boundaries(batch, task, num_trials):
         # Get trial-specific data
         if len(batch) > 1:
             # Sequence task: N trial dicts with B=1
-            total_length = batch[i]['trial_lengths'][0].item()  # Includes ITI
-            t_m = batch[i]['metadata']['t_m'][0]
-            initial_fix_rule = batch[i]['metadata']['initial_fixation_rule'][0]
-            initial_fix_timing = batch[i]['metadata']['initial_fixation_timing'][0]
+            total_length = batch[i]["trial_lengths"][0].item()  # Includes ITI
+            t_m = batch[i]["metadata"]["t_m"][0]
+            initial_fix_rule = batch[i]["metadata"]["initial_fixation_rule"][0]
+            initial_fix_timing = batch[i]["metadata"]["initial_fixation_timing"][0]
             # Get actual trial end (excludes ITI)
-            if 'iti_start' in batch[i]['metadata']:
-                trial_length = int(batch[i]['metadata']['iti_start'][0])
+            if "iti_start" in batch[i]["metadata"]:
+                trial_length = int(batch[i]["metadata"]["iti_start"][0])
             else:
                 trial_length = total_length
         else:
             # Non-sequence task: 1 trial dict with B=num_trials
-            trial_length = batch[0]['trial_lengths'][i].item()
-            t_m = batch[0]['metadata']['t_m'][i]
-            initial_fix_rule = batch[0]['metadata']['initial_fixation_rule'][i]
-            initial_fix_timing = batch[0]['metadata']['initial_fixation_timing'][i]
+            trial_length = batch[0]["trial_lengths"][i].item()
+            t_m = batch[0]["metadata"]["t_m"][i]
+            initial_fix_rule = batch[0]["metadata"]["initial_fixation_rule"][i]
+            initial_fix_timing = batch[0]["metadata"]["initial_fixation_timing"][i]
 
         # Convert to steps
         t_m_steps = int(t_m / task.dt)
@@ -192,52 +191,58 @@ def _extract_period_boundaries(batch, task, num_trials):
         decision_end = trial_length
 
         # Add to period info
-        period_info['rule_report'].append({'start': rule_report_start, 'end': rule_report_end})
-        period_info['timing'].append({'start': timing_start, 'end': timing_end})
-        period_info['decision'].append({'start': decision_start, 'end': decision_end})
+        period_info["rule_report"].append(
+            {"start": rule_report_start, "end": rule_report_end}
+        )
+        period_info["timing"].append({"start": timing_start, "end": timing_end})
+        period_info["decision"].append({"start": decision_start, "end": decision_end})
 
         # ITI (only for sequence tasks)
         if is_sequence_task:
             # Pre-ITI: ITI from previous trial (stored in trial i-1's data)
             if i > 0:
-                prev_iti_length = batch[i-1]['metadata']['iti_length'][0]
-                prev_iti_start = batch[i-1]['metadata']['iti_start'][0]
+                prev_iti_length = batch[i - 1]["metadata"]["iti_length"][0]
+                prev_iti_start = batch[i - 1]["metadata"]["iti_start"][0]
 
                 # Only include if previous trial has an ITI (not last in sequence)
                 if prev_iti_length > 0:
-                    period_info['pre_iti'].append({
-                        'trial_idx': i - 1,  # Extract from previous trial's data
-                        'start': int(prev_iti_start),
-                        'end': int(prev_iti_start + prev_iti_length)
-                    })
+                    period_info["pre_iti"].append(
+                        {
+                            "trial_idx": i - 1,  # Extract from previous trial's data
+                            "start": int(prev_iti_start),
+                            "end": int(prev_iti_start + prev_iti_length),
+                        }
+                    )
                 else:
                     # No pre-ITI for this trial (empty period)
-                    period_info['pre_iti'].append({'start': 0, 'end': 0})
+                    period_info["pre_iti"].append({"start": 0, "end": 0})
             else:
                 # First trial has no pre-ITI (empty period)
-                period_info['pre_iti'].append({'start': 0, 'end': 0})
+                period_info["pre_iti"].append({"start": 0, "end": 0})
 
             # Post-ITI: ITI from current trial (stored in trial i's data)
             if len(batch) > 1:
-                iti_start_in_trial = batch[i]['metadata']['iti_start'][0]
-                iti_length = batch[i]['metadata']['iti_length'][0]
+                iti_start_in_trial = batch[i]["metadata"]["iti_start"][0]
+                iti_length = batch[i]["metadata"]["iti_length"][0]
             else:
-                iti_start_in_trial = batch[0]['metadata']['iti_start'][i]
-                iti_length = batch[0]['metadata']['iti_length'][i]
+                iti_start_in_trial = batch[0]["metadata"]["iti_start"][i]
+                iti_length = batch[0]["metadata"]["iti_length"][i]
 
             if iti_length > 0:
-                period_info['post_iti'].append({
-                    'start': int(iti_start_in_trial),
-                    'end': int(iti_start_in_trial + iti_length)
-                })
+                period_info["post_iti"].append(
+                    {
+                        "start": int(iti_start_in_trial),
+                        "end": int(iti_start_in_trial + iti_length),
+                    }
+                )
             else:
                 # No post-ITI for this trial (last in sequence, empty period)
-                period_info['post_iti'].append({'start': 0, 'end': 0})
+                period_info["post_iti"].append({"start": 0, "end": 0})
 
     return period_info
 
 
-def generate_data(task, model, num_trials=None, device='cpu'):
+def generate_data(task, model, num_trials=None, device="cpu"):
     """
     Generate multiple trials and collect all data.
 
@@ -269,7 +274,9 @@ def generate_data(task, model, num_trials=None, device='cpu'):
     model.eval()
 
     # Check if this is a sequence task
-    is_sequence_task = hasattr(task, 'trials_per_sequence') and task.trials_per_sequence > 1
+    is_sequence_task = (
+        hasattr(task, "trials_per_sequence") and task.trials_per_sequence > 1
+    )
 
     if is_sequence_task:
         # Sequence task: Generate trials with reward feedback
@@ -277,12 +284,16 @@ def generate_data(task, model, num_trials=None, device='cpu'):
 
         # Calculate how many sequences we need to generate
         trials_per_seq = task.trials_per_sequence
-        num_sequences = (num_trials + trials_per_seq - 1) // trials_per_seq  # Ceiling division
+        num_sequences = (
+            num_trials + trials_per_seq - 1
+        ) // trials_per_seq  # Ceiling division
 
         # Generate multiple sequences and concatenate
         all_batches = []
         for seq_idx in range(num_sequences):
-            batch = task.generate_batch(batch_size=1)  # List of trials_per_sequence trial dicts
+            batch = task.generate_batch(
+                batch_size=1
+            )  # List of trials_per_sequence trial dicts
             all_batches.extend(batch)
 
         # Truncate to exactly num_trials if we generated too many
@@ -304,10 +315,10 @@ def generate_data(task, model, num_trials=None, device='cpu'):
                 trial_dict = batch[trial_idx]
 
                 # Get trial data: [1, T, C]
-                trial_inputs = trial_dict['inputs'].to(device)  # [1, T, 5]
-                trial_targets = trial_dict['targets'].to(device)  # [1, T, 2]
-                trial_eval_mask = trial_dict['eval_mask'].to(device)  # [1, T, 2]
-                trial_length = trial_dict['trial_lengths'][0].item()
+                trial_inputs = trial_dict["inputs"].to(device)  # [1, T, 5]
+                trial_targets = trial_dict["targets"].to(device)  # [1, T, 2]
+                trial_eval_mask = trial_dict["eval_mask"].to(device)  # [1, T, 2]
+                trial_length = trial_dict["trial_lengths"][0].item()
 
                 # Initialize hidden state for first trial
                 if hidden is None:
@@ -325,7 +336,7 @@ def generate_data(task, model, num_trials=None, device='cpu'):
 
                 # Process ITI between trials (except after last trial or at sequence boundaries)
                 iti_length = 0
-                is_last_in_sequence = ((trial_idx + 1) % trials_per_seq == 0)
+                is_last_in_sequence = (trial_idx + 1) % trials_per_seq == 0
                 if trial_idx < N - 1 and not is_last_in_sequence:
                     # Stack trial outputs to compute correctness
                     trial_outputs_stacked = torch.stack(trial_outputs_list, dim=1)
@@ -334,15 +345,15 @@ def generate_data(task, model, num_trials=None, device='cpu'):
                     is_correct = task._evaluate_trial_correctness_batch(
                         trial_outputs_stacked,
                         trial_targets[:, :trial_length, :],
-                        trial_eval_mask[:, :trial_length, :]
+                        trial_eval_mask[:, :trial_length, :],
                     )
 
                     # Generate ITI inputs with reward feedback
                     iti_inputs = task._generate_iti_inputs(
                         is_correct,
-                        trial_dict['metadata'],
+                        trial_dict["metadata"],
                         task.iti_len,
-                        task.reward_len
+                        task.reward_len,
                     ).to(device)  # [1, iti_len, 5]
 
                     # Process ITI and save hidden states
@@ -364,53 +375,68 @@ def generate_data(task, model, num_trials=None, device='cpu'):
                 trial_hidden_states = torch.stack(trial_hidden_list, dim=1)
 
                 # Concatenate trial inputs with ITI inputs (zeros if no ITI)
-                trial_inputs_with_iti = torch.cat([
-                    trial_inputs[:, :trial_length, :],
-                    iti_inputs if iti_length > 0 else torch.zeros(1, 0, 5, device=device)
-                ], dim=1)
+                trial_inputs_with_iti = torch.cat(
+                    [
+                        trial_inputs[:, :trial_length, :],
+                        iti_inputs
+                        if iti_length > 0
+                        else torch.zeros(1, 0, 5, device=device),
+                    ],
+                    dim=1,
+                )
 
                 all_inputs.append(trial_inputs_with_iti)
                 all_outputs.append(trial_outputs)
                 all_hidden_states.append(trial_hidden_states)
 
                 # Add ITI start index to metadata
-                batch[trial_idx]['metadata']['iti_start'] = np.array([trial_length])
-                batch[trial_idx]['metadata']['iti_length'] = np.array([iti_length])
+                batch[trial_idx]["metadata"]["iti_start"] = np.array([trial_length])
+                batch[trial_idx]["metadata"]["iti_length"] = np.array([iti_length])
 
                 # Update batch element to include ITI data
                 # Concatenate trial data with ITI data (zeros for targets/masks during ITI)
-                batch[trial_idx]['inputs'] = trial_inputs_with_iti.cpu()  # [1, T+ITI, 5]
+                batch[trial_idx]["inputs"] = (
+                    trial_inputs_with_iti.cpu()
+                )  # [1, T+ITI, 5]
 
                 if iti_length > 0:
                     # Create zero targets and masks for ITI period
                     iti_targets = torch.zeros(1, iti_length, 2)
                     iti_eval_mask = torch.zeros(1, iti_length, 2)
 
-                    batch[trial_idx]['targets'] = torch.cat([
-                        trial_targets[:, :trial_length, :].cpu(),
-                        iti_targets
-                    ], dim=1)
+                    batch[trial_idx]["targets"] = torch.cat(
+                        [trial_targets[:, :trial_length, :].cpu(), iti_targets], dim=1
+                    )
 
-                    batch[trial_idx]['eval_mask'] = torch.cat([
-                        trial_eval_mask[:, :trial_length, :].cpu(),
-                        iti_eval_mask
-                    ], dim=1)
+                    batch[trial_idx]["eval_mask"] = torch.cat(
+                        [trial_eval_mask[:, :trial_length, :].cpu(), iti_eval_mask],
+                        dim=1,
+                    )
 
                     # Concatenate loss_mask if present
-                    if 'loss_mask' in batch[trial_idx]:
+                    if "loss_mask" in batch[trial_idx]:
                         iti_loss_mask = torch.zeros(1, iti_length, 2)
-                        batch[trial_idx]['loss_mask'] = torch.cat([
-                            trial_dict['loss_mask'][:, :trial_length, :],
-                            iti_loss_mask
-                        ], dim=1)
+                        batch[trial_idx]["loss_mask"] = torch.cat(
+                            [
+                                trial_dict["loss_mask"][:, :trial_length, :],
+                                iti_loss_mask,
+                            ],
+                            dim=1,
+                        )
                 else:
                     # No ITI - just move tensors to CPU (no concatenation needed)
-                    batch[trial_idx]['targets'] = trial_targets[:, :trial_length, :].cpu()
-                    batch[trial_idx]['eval_mask'] = trial_eval_mask[:, :trial_length, :].cpu()
+                    batch[trial_idx]["targets"] = trial_targets[
+                        :, :trial_length, :
+                    ].cpu()
+                    batch[trial_idx]["eval_mask"] = trial_eval_mask[
+                        :, :trial_length, :
+                    ].cpu()
 
                 # Update trial length to include ITI
                 total_length = trial_length + iti_length
-                batch[trial_idx]['trial_lengths'] = torch.tensor([total_length], dtype=torch.long)
+                batch[trial_idx]["trial_lengths"] = torch.tensor(
+                    [total_length], dtype=torch.long
+                )
 
         # Concatenate all trials: [N, T_max, C]
         # Find max trial length
@@ -425,9 +451,16 @@ def generate_data(task, model, num_trials=None, device='cpu'):
             T = inp.shape[1]
             if T < max_trial_len:
                 pad_width = max_trial_len - T
-                inp = torch.cat([inp, torch.zeros(1, pad_width, 5, device=device)], dim=1)
-                out = torch.cat([out, torch.zeros(1, pad_width, 2, device=device)], dim=1)
-                hid = torch.cat([hid, torch.zeros(1, pad_width, hidden.shape[-1], device=device)], dim=1)
+                inp = torch.cat(
+                    [inp, torch.zeros(1, pad_width, 5, device=device)], dim=1
+                )
+                out = torch.cat(
+                    [out, torch.zeros(1, pad_width, 2, device=device)], dim=1
+                )
+                hid = torch.cat(
+                    [hid, torch.zeros(1, pad_width, hidden.shape[-1], device=device)],
+                    dim=1,
+                )
             inputs_padded.append(inp)
             outputs_padded.append(out)
             hidden_states_padded.append(hid)
@@ -442,33 +475,30 @@ def generate_data(task, model, num_trials=None, device='cpu'):
 
         # Pad batch elements to max_trial_len (same pattern as tensor padding)
         for trial_idx in range(N):
-            T = batch[trial_idx]['trial_lengths'][0].item()
+            T = batch[trial_idx]["trial_lengths"][0].item()
             if T < max_trial_len:
                 pad_width = max_trial_len - T
                 # Pad inputs, targets, and masks
-                batch[trial_idx]['inputs'] = torch.cat([
-                    batch[trial_idx]['inputs'],
-                    torch.zeros(1, pad_width, 5)
-                ], dim=1)
-                batch[trial_idx]['targets'] = torch.cat([
-                    batch[trial_idx]['targets'],
-                    torch.zeros(1, pad_width, 2)
-                ], dim=1)
-                batch[trial_idx]['eval_mask'] = torch.cat([
-                    batch[trial_idx]['eval_mask'],
-                    torch.zeros(1, pad_width, 2)
-                ], dim=1)
-                if 'loss_mask' in batch[trial_idx]:
-                    batch[trial_idx]['loss_mask'] = torch.cat([
-                        batch[trial_idx]['loss_mask'],
-                        torch.zeros(1, pad_width, 2)
-                    ], dim=1)
+                batch[trial_idx]["inputs"] = torch.cat(
+                    [batch[trial_idx]["inputs"], torch.zeros(1, pad_width, 5)], dim=1
+                )
+                batch[trial_idx]["targets"] = torch.cat(
+                    [batch[trial_idx]["targets"], torch.zeros(1, pad_width, 2)], dim=1
+                )
+                batch[trial_idx]["eval_mask"] = torch.cat(
+                    [batch[trial_idx]["eval_mask"], torch.zeros(1, pad_width, 2)], dim=1
+                )
+                if "loss_mask" in batch[trial_idx]:
+                    batch[trial_idx]["loss_mask"] = torch.cat(
+                        [batch[trial_idx]["loss_mask"], torch.zeros(1, pad_width, 2)],
+                        dim=1,
+                    )
 
         return {
-            'inputs': inputs,  # [N, T, 5]
-            'outputs': outputs,  # [N, T, 2]
-            'hidden_states': hidden_states,  # [N, H, T]
-            'batch': batch  # List of trial dicts
+            "inputs": inputs,  # [N, T, 5]
+            "outputs": outputs,  # [N, T, 2]
+            "hidden_states": hidden_states,  # [N, H, T]
+            "batch": batch,  # List of trial dicts
         }
 
     else:
@@ -478,11 +508,13 @@ def generate_data(task, model, num_trials=None, device='cpu'):
         # Generate batch with multiple independent trials
         batch = task.generate_batch(batch_size=num_trials)  # List of 1 trial dict
 
-        assert len(batch) == 1, f"Expected 1 trial dict for non-sequence task, got {len(batch)}"
+        assert len(batch) == 1, (
+            f"Expected 1 trial dict for non-sequence task, got {len(batch)}"
+        )
         trial_dict = batch[0]
 
         # Get trial data: [B, T, C]
-        inputs = trial_dict['inputs'].to(device)  # [B, T, 5]
+        inputs = trial_dict["inputs"].to(device)  # [B, T, 5]
         B, T, C = inputs.shape
 
         # Run all trials through model timestep by timestep
@@ -509,10 +541,10 @@ def generate_data(task, model, num_trials=None, device='cpu'):
 
         # Return data
         return {
-            'inputs': inputs,  # [B, T, 5]
-            'outputs': outputs,  # [B, T, 2]
-            'hidden_states': hidden_states,  # [B, H, T]
-            'batch': batch  # List of 1 trial dict
+            "inputs": inputs,  # [B, T, 5]
+            "outputs": outputs,  # [B, T, 2]
+            "hidden_states": hidden_states,  # [B, H, T]
+            "batch": batch,  # List of 1 trial dict
         }
 
 
@@ -532,11 +564,13 @@ def get_metadata(batch, outputs=None, task=None):
     if len(batch) > 1:
         # Sequence task: N trial dicts, each with B=1
         metadata = {}
-        for key in batch[0]['metadata'].keys():
-            metadata[key] = np.array([trial_dict['metadata'][key][0] for trial_dict in batch])
+        for key in batch[0]["metadata"].keys():
+            metadata[key] = np.array(
+                [trial_dict["metadata"][key][0] for trial_dict in batch]
+            )
     else:
         # Non-sequence task: 1 trial dict with B=num_trials
-        metadata = batch[0]['metadata'].copy()
+        metadata = batch[0]["metadata"].copy()
 
     # Compute decisions if outputs provided
     if outputs is not None and task is not None:
@@ -545,20 +579,20 @@ def get_metadata(batch, outputs=None, task=None):
 
         for i in range(N):
             if len(batch) > 1:
-                trial_length = batch[i]['trial_lengths'][0].item()
+                trial_length = batch[i]["trial_lengths"][0].item()
             else:
-                trial_length = batch[0]['trial_lengths'][i].item()
+                trial_length = batch[0]["trial_lengths"][i].item()
 
             eval_start = trial_length - int(300 / task.dt)
             decision_pred = outputs[i, eval_start:trial_length, 0].mean().item()
             decisions.append(1 if decision_pred > 0 else -1)
 
-        metadata['decision'] = np.array(decisions)
+        metadata["decision"] = np.array(decisions)
 
     return metadata
 
 
-def _process_single_trial(model, inputs_tensor, device='cpu'):
+def _process_single_trial(model, inputs_tensor, device="cpu"):
     """
     Helper function to process a single trial through the time-step RNN.
 
@@ -622,13 +656,15 @@ def compute_psychometric_curves(task, model, num_trials_per_interval=100, rules=
                 total = 0
 
                 for _ in range(num_trials_per_interval):
-                    trial = task.generate_trial(t_s=t_s, rule=rule, has_instruction=True)
-                    inputs = torch.from_numpy(trial['inputs'])  # [C, T]
-                    targets = torch.from_numpy(trial['targets'])  # [C_out, T]
+                    trial = task.generate_trial(
+                        t_s=t_s, rule=rule, has_instruction=True
+                    )
+                    inputs = torch.from_numpy(trial["inputs"])  # [C, T]
+                    targets = torch.from_numpy(trial["targets"])  # [C_out, T]
 
                     outputs = _process_single_trial(model, inputs)  # [1, T, C_out]
 
-                    T = trial['trial_length']
+                    T = trial["trial_length"]
                     eval_start = T - int(300 / task.dt)
                     decision_pred = outputs[0, eval_start:T, 0].mean().item()
                     decision_target = targets[0, eval_start:T].mean().item()
@@ -637,8 +673,9 @@ def compute_psychometric_curves(task, model, num_trials_per_interval=100, rules=
                         correct += 1
 
                     # Check if Anti choice (decision is opposite from direction)
-                    is_anti = ((decision_pred > 0 and trial['stim_direction'] < 0) or
-                                (decision_pred < 0 and trial['stim_direction'] > 0))
+                    is_anti = (decision_pred > 0 and trial["stim_direction"] < 0) or (
+                        decision_pred < 0 and trial["stim_direction"] > 0
+                    )
                     if is_anti:
                         anti_count += 1
                     total += 1
@@ -652,7 +689,7 @@ def compute_psychometric_curves(task, model, num_trials_per_interval=100, rules=
         anti_probs[rule] = np.array(anti_probs[rule])
 
     return {
-        'intervals': np.array(intervals),
-        'accuracies': accuracies,
-        'anti_probs': anti_probs
+        "intervals": np.array(intervals),
+        "accuracies": accuracies,
+        "anti_probs": anti_probs,
     }

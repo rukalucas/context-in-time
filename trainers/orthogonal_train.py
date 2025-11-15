@@ -18,9 +18,9 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
     def __init__(
         self,
         alpha_projection: float = 0.001,
-        apply_proj_to: str = 'both',
+        apply_proj_to: str = "both",
         projection_collection_batch_size: int = 64,
-        **kwargs
+        **kwargs,
     ):
         # Pass all parameters to parent SequentialTrainer
         super().__init__(**kwargs)
@@ -57,7 +57,9 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         n = x.shape[1]
         return (x @ x.T) / (n - 1)
 
-    def _compute_projection_matrix(self, cov: torch.Tensor, alpha: float) -> torch.Tensor:
+    def _compute_projection_matrix(
+        self, cov: torch.Tensor, alpha: float
+    ) -> torch.Tensor:
         """Compute projection matrix from covariance.
 
         High-variance directions (important for previous tasks) are projected out.
@@ -92,17 +94,17 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         - Shh (recurrent_cov): hidden-hidden block from input_cov
         """
         # Running average of covariance matrices (will be initialized on first task)
-        self.cov_input_running = None      # Suh: joint [input, hidden] covariance
-        self.cov_activity_running = None   # Swh: W @ input_cov @ W.T
-        self.cov_output_running = None     # Syy: output covariance
+        self.cov_input_running = None  # Suh: joint [input, hidden] covariance
+        self.cov_activity_running = None  # Swh: W @ input_cov @ W.T
+        self.cov_output_running = None  # Syy: output covariance
         self.cov_recurrent_running = None  # Shh: hidden-hidden block from cov_input
 
         # Projection matrices (initialized to identity, updated after each task)
         # Following paper notation from Algorithm 1
         self.P_wz = None  # From Swh (activity covariance)
-        self.P_z = None   # From Suh (input covariance)
-        self.P_y = None   # From Syy (output covariance)
-        self.P_h = None   # From Shh (recurrent covariance)
+        self.P_z = None  # From Suh (input covariance)
+        self.P_y = None  # From Syy (output covariance)
+        self.P_h = None  # From Shh (recurrent covariance)
 
         # Gradient hook handles
         self.hook_handles = []
@@ -119,33 +121,38 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         - w_rec: P_wz @ grad @ P_h
         - w_out: P_y @ grad @ P_h
         """
+
         def create_projection_hook(param_name: str):
             """Create a hook function for a specific parameter."""
+
             def hook(grad):
                 # Only project if we have computed projections (after first task)
                 if self.current_task_idx == 0 or self.P_wz is None:
                     return grad
 
                 # Project gradient based on parameter name
-                if 'w_in.weight' in param_name:
-                    if self.apply_proj_to in ['both', 'recurrent']:
+                if "w_in.weight" in param_name:
+                    if self.apply_proj_to in ["both", "recurrent"]:
                         return self._project_gradient_w_in(grad)
 
-                elif 'w_rec.weight' in param_name:
-                    if self.apply_proj_to in ['both', 'recurrent']:
+                elif "w_rec.weight" in param_name:
+                    if self.apply_proj_to in ["both", "recurrent"]:
                         return self._project_gradient_w_rec(grad)
 
-                elif 'w_out.weight' in param_name:
-                    if self.apply_proj_to in ['both', 'readout']:
+                elif "w_out.weight" in param_name:
+                    if self.apply_proj_to in ["both", "readout"]:
                         return self._project_gradient_w_out(grad)
 
                 # Bias terms are not projected
                 return grad
+
             return hook
 
         # Register hooks on weight parameters (including w_in now!)
         for name, param in self.model.named_parameters():
-            if 'weight' in name and ('w_in' in name or 'w_rec' in name or 'w_out' in name):
+            if "weight" in name and (
+                "w_in" in name or "w_rec" in name or "w_out" in name
+            ):
                 handle = param.register_hook(create_projection_hook(name))
                 self.hook_handles.append(handle)
 
@@ -204,7 +211,7 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         with torch.no_grad():
             if self._is_sequence_task(batch):
                 # Sequence task: process trials with timestep loop
-                B = batch[0]['inputs'].shape[0]
+                B = batch[0]["inputs"].shape[0]
                 h = torch.zeros(B, self.model.hidden_size)
 
                 all_inputs = []
@@ -212,8 +219,8 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
                 all_outputs = []
 
                 for trial in batch:
-                    trial_inputs = trial['inputs']  # [B, max_trial_len, 5]
-                    trial_lengths = trial['trial_lengths']  # [B]
+                    trial_inputs = trial["inputs"]  # [B, max_trial_len, 5]
+                    trial_lengths = trial["trial_lengths"]  # [B]
                     max_trial_len = trial_inputs.shape[1]
 
                     # Process trial timestep by timestep
@@ -235,7 +242,7 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
             else:
                 # Single trial task: process with timestep loop
                 trial = batch[0]  # Get the single trial dict
-                inputs = trial['inputs']  # [B, T, 5]
+                inputs = trial["inputs"]  # [B, T, 5]
                 B, T, _ = inputs.shape
                 h = torch.zeros(B, self.model.hidden_size)
 
@@ -257,14 +264,18 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
                 outputs_flat = torch.cat(all_outputs, dim=0)  # [B*T, output_size]
 
         # Compute covariances for this task (transpose for features×samples format)
-        joint_state = torch.cat([inputs_flat, hidden_flat], dim=1).T  # (n_input+n_hidden, samples)
+        joint_state = torch.cat(
+            [inputs_flat, hidden_flat], dim=1
+        ).T  # (n_input+n_hidden, samples)
         cov_input_task = self._compute_covariance(joint_state)
         cov_output_task = self._compute_covariance(outputs_flat.T)
 
         # Get weight matrices for computing activity covariance
         W_in = self.model.w_in.weight.data  # (hidden_size, input_size)
         W_rec = self.model.w_rec.weight.data  # (hidden_size, hidden_size)
-        W_full = torch.cat([W_in, W_rec], dim=1)  # (hidden_size, input_size + hidden_size)
+        W_full = torch.cat(
+            [W_in, W_rec], dim=1
+        )  # (hidden_size, input_size + hidden_size)
 
         # Compute activity covariance: W @ cov_input @ W.T
         cov_activity_task = W_full @ cov_input_task @ W_full.T
@@ -290,32 +301,55 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
             weight_old = k / (k + 1)
             weight_new = 1 / (k + 1)
 
-            self.cov_input_running = weight_old * self.cov_input_running + weight_new * cov_input_task
-            self.cov_activity_running = weight_old * self.cov_activity_running + weight_new * cov_activity_task
-            self.cov_output_running = weight_old * self.cov_output_running + weight_new * cov_output_task
-            self.cov_recurrent_running = weight_old * self.cov_recurrent_running + weight_new * cov_recurrent_task
+            self.cov_input_running = (
+                weight_old * self.cov_input_running + weight_new * cov_input_task
+            )
+            self.cov_activity_running = (
+                weight_old * self.cov_activity_running + weight_new * cov_activity_task
+            )
+            self.cov_output_running = (
+                weight_old * self.cov_output_running + weight_new * cov_output_task
+            )
+            self.cov_recurrent_running = (
+                weight_old * self.cov_recurrent_running
+                + weight_new * cov_recurrent_task
+            )
 
         # Recompute projection matrices (following Algorithm 1 notation)
         # P_wz from Swh, P_z from Suh, P_y from Syy, P_h from Shh
-        self.P_wz = self._compute_projection_matrix(self.cov_activity_running, self.alpha_projection)
-        self.P_z = self._compute_projection_matrix(self.cov_input_running, self.alpha_projection)
-        self.P_y = self._compute_projection_matrix(self.cov_output_running, self.alpha_projection)
-        self.P_h = self._compute_projection_matrix(self.cov_recurrent_running, self.alpha_projection)
+        self.P_wz = self._compute_projection_matrix(
+            self.cov_activity_running, self.alpha_projection
+        )
+        self.P_z = self._compute_projection_matrix(
+            self.cov_input_running, self.alpha_projection
+        )
+        self.P_y = self._compute_projection_matrix(
+            self.cov_output_running, self.alpha_projection
+        )
+        self.P_h = self._compute_projection_matrix(
+            self.cov_recurrent_running, self.alpha_projection
+        )
 
         # Log projection statistics
         eigenvalues_input, _ = torch.linalg.eigh(self.cov_input_running)
         eigenvalues_output, _ = torch.linalg.eigh(self.cov_output_running)
 
-        print(f"  Input covariance eigenvalues (max/min): {eigenvalues_input.max():.4f} / {eigenvalues_input.min():.4f}")
-        print(f"  Output covariance eigenvalues (max/min): {eigenvalues_output.max():.4f} / {eigenvalues_output.min():.4f}")
-        print(f"  Projection matrices updated for {k+1} task(s)")
+        print(
+            f"  Input covariance eigenvalues (max/min): {eigenvalues_input.max():.4f} / {eigenvalues_input.min():.4f}"
+        )
+        print(
+            f"  Output covariance eigenvalues (max/min): {eigenvalues_output.max():.4f} / {eigenvalues_output.min():.4f}"
+        )
+        print(f"  Projection matrices updated for {k + 1} task(s)")
 
         self.model.train()
 
     def _recalculate_all_task_covariances(self) -> None:
         """Recalculate covariances for all tasks when starting from non-orthogonal checkpoint."""
         for task_idx, (task, task_name) in enumerate(zip(self.tasks, self.task_names)):
-            print(f"  Computing covariances for task {task_idx+1}/{len(self.tasks)}: {task_name}")
+            print(
+                f"  Computing covariances for task {task_idx + 1}/{len(self.tasks)}: {task_name}"
+            )
 
             # Generate batch for activity collection
             batch = task.generate_batch(self.projection_collection_batch_size)
@@ -325,7 +359,7 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
             with torch.no_grad():
                 if self._is_sequence_task(batch):
                     # Sequence task: process trials with timestep loop
-                    B = batch[0]['inputs'].shape[0]
+                    B = batch[0]["inputs"].shape[0]
                     h = torch.zeros(B, self.model.hidden_size)
 
                     all_inputs = []
@@ -333,8 +367,8 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
                     all_outputs = []
 
                     for trial in batch:
-                        trial_inputs = trial['inputs']  # [B, max_trial_len, 5]
-                        trial_lengths = trial['trial_lengths']  # [B]
+                        trial_inputs = trial["inputs"]  # [B, max_trial_len, 5]
+                        trial_lengths = trial["trial_lengths"]  # [B]
                         max_trial_len = trial_inputs.shape[1]
 
                         # Process trial timestep by timestep
@@ -356,7 +390,7 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
                 else:
                     # Single trial task: process with timestep loop
                     trial = batch[0]  # Get the single trial dict
-                    inputs = trial['inputs']  # [B, T, 5]
+                    inputs = trial["inputs"]  # [B, T, 5]
                     B, T, _ = inputs.shape
                     h = torch.zeros(B, self.model.hidden_size)
 
@@ -410,16 +444,34 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
                 weight_old = task_idx / (task_idx + 1)
                 weight_new = 1 / (task_idx + 1)
 
-                self.cov_input_running = weight_old * self.cov_input_running + weight_new * cov_input_task
-                self.cov_activity_running = weight_old * self.cov_activity_running + weight_new * cov_activity_task
-                self.cov_output_running = weight_old * self.cov_output_running + weight_new * cov_output_task
-                self.cov_recurrent_running = weight_old * self.cov_recurrent_running + weight_new * cov_recurrent_task
+                self.cov_input_running = (
+                    weight_old * self.cov_input_running + weight_new * cov_input_task
+                )
+                self.cov_activity_running = (
+                    weight_old * self.cov_activity_running
+                    + weight_new * cov_activity_task
+                )
+                self.cov_output_running = (
+                    weight_old * self.cov_output_running + weight_new * cov_output_task
+                )
+                self.cov_recurrent_running = (
+                    weight_old * self.cov_recurrent_running
+                    + weight_new * cov_recurrent_task
+                )
 
         # Recompute projection matrices
-        self.P_wz = self._compute_projection_matrix(self.cov_activity_running, self.alpha_projection)
-        self.P_z = self._compute_projection_matrix(self.cov_input_running, self.alpha_projection)
-        self.P_y = self._compute_projection_matrix(self.cov_output_running, self.alpha_projection)
-        self.P_h = self._compute_projection_matrix(self.cov_recurrent_running, self.alpha_projection)
+        self.P_wz = self._compute_projection_matrix(
+            self.cov_activity_running, self.alpha_projection
+        )
+        self.P_z = self._compute_projection_matrix(
+            self.cov_input_running, self.alpha_projection
+        )
+        self.P_y = self._compute_projection_matrix(
+            self.cov_output_running, self.alpha_projection
+        )
+        self.P_h = self._compute_projection_matrix(
+            self.cov_recurrent_running, self.alpha_projection
+        )
 
         print(f"  Covariances computed for all {len(self.tasks)} tasks")
         self.model.train()
@@ -429,29 +481,29 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         self._collect_task_activity_and_update_projections()
         super()._advance_to_next_task()
 
-    def save_checkpoint(self, filename: str = 'checkpoint.pt') -> None:
+    def save_checkpoint(self, filename: str = "checkpoint.pt") -> None:
         """Override to save projection matrices in addition to base state."""
         extra_state = {
-            'current_task_idx': self.current_task_idx,
-            'current_task_step': self.current_task_step,
-            'use_orthogonal_projection': True,
-            'alpha_projection': self.alpha_projection,
-            'apply_proj_to': self.apply_proj_to
+            "current_task_idx": self.current_task_idx,
+            "current_task_step": self.current_task_step,
+            "use_orthogonal_projection": True,
+            "alpha_projection": self.alpha_projection,
+            "apply_proj_to": self.apply_proj_to,
         }
 
         # Save covariance matrices if they exist
         if self.cov_input_running is not None:
-            extra_state['cov_input_running'] = self.cov_input_running
-            extra_state['cov_activity_running'] = self.cov_activity_running
-            extra_state['cov_output_running'] = self.cov_output_running
-            extra_state['cov_recurrent_running'] = self.cov_recurrent_running
+            extra_state["cov_input_running"] = self.cov_input_running
+            extra_state["cov_activity_running"] = self.cov_activity_running
+            extra_state["cov_output_running"] = self.cov_output_running
+            extra_state["cov_recurrent_running"] = self.cov_recurrent_running
 
         # Save projection matrices if they exist
         if self.P_wz is not None:
-            extra_state['P_wz'] = self.P_wz
-            extra_state['P_z'] = self.P_z
-            extra_state['P_y'] = self.P_y
-            extra_state['P_h'] = self.P_h
+            extra_state["P_wz"] = self.P_wz
+            extra_state["P_z"] = self.P_z
+            extra_state["P_y"] = self.P_y
+            extra_state["P_h"] = self.P_h
 
         # Call BaseTrainer.save_checkpoint directly (skip SequentialTrainer since we handle its state here)
         BaseTrainer.save_checkpoint(self, filename=filename, extra_state=extra_state)
@@ -462,33 +514,41 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         super()._restore_extra_state(extra_state)
 
         # Restore projection state if it was saved
-        if extra_state.get('use_orthogonal_projection', False):
+        if extra_state.get("use_orthogonal_projection", False):
             # Restore covariance matrices
-            if 'cov_input_running' in extra_state:
-                self.cov_input_running = extra_state['cov_input_running']
-                self.cov_activity_running = extra_state['cov_activity_running']
-                self.cov_output_running = extra_state['cov_output_running']
-                self.cov_recurrent_running = extra_state['cov_recurrent_running']
+            if "cov_input_running" in extra_state:
+                self.cov_input_running = extra_state["cov_input_running"]
+                self.cov_activity_running = extra_state["cov_activity_running"]
+                self.cov_output_running = extra_state["cov_output_running"]
+                self.cov_recurrent_running = extra_state["cov_recurrent_running"]
 
             # Restore projection matrices
-            if 'P_wz' in extra_state:
-                self.P_wz = extra_state['P_wz']
-                self.P_z = extra_state['P_z']
-                self.P_y = extra_state['P_y']
-                self.P_h = extra_state['P_h']
+            if "P_wz" in extra_state:
+                self.P_wz = extra_state["P_wz"]
+                self.P_z = extra_state["P_z"]
+                self.P_y = extra_state["P_y"]
+                self.P_h = extra_state["P_h"]
 
                 print("Restored projection state from checkpoint")
             else:
                 # No projection state in checkpoint - recalculate from current model state
-                print("No projection state in checkpoint - recalculating covariances for all tasks...")
+                print(
+                    "No projection state in checkpoint - recalculating covariances for all tasks..."
+                )
                 self._recalculate_all_task_covariances()
 
     def train(
         self,
         batch_size: int = None,
         log_interval: int = None,
-        checkpoint_interval: int = None
+        checkpoint_interval: int = None,
     ) -> None:
         """Override to add orthogonal projection info to startup message."""
-        print(f"Orthogonal projection: ENABLED (alpha={self.alpha_projection}, apply_to={self.apply_proj_to})")
-        super().train(batch_size=batch_size, log_interval=log_interval, checkpoint_interval=checkpoint_interval)
+        print(
+            f"Orthogonal projection: ENABLED (alpha={self.alpha_projection}, apply_to={self.apply_proj_to})"
+        )
+        super().train(
+            batch_size=batch_size,
+            log_interval=log_interval,
+            checkpoint_interval=checkpoint_interval,
+        )

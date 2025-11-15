@@ -20,14 +20,16 @@ class TransitionTask(BaseTask):
 
     def __init__(self, rule_cue_prob: float = 0.9, **kwargs):
         """Initialize transition task with adjustable cue probability."""
-        kwargs['rule_cue_prob'] = rule_cue_prob
+        kwargs["rule_cue_prob"] = rule_cue_prob
         super().__init__(**kwargs)
-        self.trials_per_sequence = kwargs.get('trials_per_sequence', 40)
+        self.trials_per_sequence = kwargs.get("trials_per_sequence", 40)
         self.name = "Transition Task"
 
     def _generate_block_structure(self, num_trials: int) -> tuple:
         """Override: Generate block structure with per-trial rule_cue_prob."""
-        rules, block_starts, _, block_ids = super()._generate_block_structure(num_trials)
+        rules, block_starts, _, block_ids = super()._generate_block_structure(
+            num_trials
+        )
         # Override: each trial shows cue with probability rule_cue_prob
         has_instruction = np.random.rand(num_trials) < self.rule_cue_prob
         return rules, block_starts, has_instruction, block_ids

@@ -17,7 +17,7 @@ class RNN(nn.Module):
         output_size: int = 2,
         tau: float = 100.0,  # ms
         dt: float = 20.0,  # ms
-        activation: str = 'elu',
+        activation: str = "elu",
         noise_std: float = 0.1,
     ):
         super().__init__()
@@ -32,13 +32,13 @@ class RNN(nn.Module):
         self.alpha = dt / tau
 
         # Activation function
-        if activation == 'elu':
+        if activation == "elu":
             self.activation = nn.ELU()
-        elif activation == 'softplus':
+        elif activation == "softplus":
             self.activation = nn.Softplus()
-        elif activation == 'relu':
+        elif activation == "relu":
             self.activation = nn.ReLU()
-        elif activation == 'tanh':
+        elif activation == "tanh":
             self.activation = nn.Tanh()
         else:
             raise ValueError(f"Unknown activation: {activation}")
@@ -62,7 +62,9 @@ class RNN(nn.Module):
         # Output weights: Xavier/He initialization
         nn.init.xavier_uniform_(self.w_out.weight)
 
-    def forward(self, input: torch.Tensor, hidden: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, input: torch.Tensor, hidden: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through the RNN for a single timestep.
 
@@ -82,7 +84,10 @@ class RNN(nn.Module):
         # where α = dt/τ
 
         # Generate noise: ξ = σ_rec * N(0,1)
-        noise = torch.randn(batch_size, self.hidden_size, device=input.device) * self.noise_std
+        noise = (
+            torch.randn(batch_size, self.hidden_size, device=input.device)
+            * self.noise_std
+        )
 
         # Compute total input i(t)
         rec_input = self.w_rec(hidden)  # [batch_size, hidden_size]
@@ -90,7 +95,9 @@ class RNN(nn.Module):
         total_input = rec_input + input_drive + noise
 
         # Update hidden state: h_{t+1} = (1 - α) * h_t + α * φ(i_t)
-        new_hidden = (1 - self.alpha) * hidden + self.alpha * self.activation(total_input)
+        new_hidden = (1 - self.alpha) * hidden + self.alpha * self.activation(
+            total_input
+        )
 
         # Compute output
         output = self.w_out(new_hidden)  # [batch_size, output_size]

@@ -8,20 +8,22 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf, DictConfig
 
+
 def create_tasks(conf: DictConfig) -> list:
     """Create task instances from config."""
     from tasks import TransitionTask, InferredTask, InstructedTask, SingleTrialTask
+
     task_name_to_class = {
-        'transition': TransitionTask,
-        'inferred': InferredTask,
-        'instructed': InstructedTask,
-        'single_trial': SingleTrialTask,
+        "transition": TransitionTask,
+        "inferred": InferredTask,
+        "instructed": InstructedTask,
+        "single_trial": SingleTrialTask,
     }
     tasks = []
     for task_spec in conf.tasks:
         task_type = task_spec.task_type
         assert task_type in task_name_to_class, f"Unknown task_type: {task_type}"
-        task = task_name_to_class[task_type](**task_spec.get('task', {}))
+        task = task_name_to_class[task_type](**task_spec.get("task", {}))
         tasks.append((task, task_type))
     return tasks
 
@@ -31,14 +33,14 @@ def create_model(conf: DictConfig):
     from models.rnn import RNN
     from models.modular_rnn import ModularRNN
 
-    model_type = conf.model.get('model_type', 'rnn')
+    model_type = conf.model.get("model_type", "rnn")
 
-    if model_type == 'rnn':
+    if model_type == "rnn":
         # Remove model_type from params before passing to constructor
-        model_params = {k: v for k, v in conf.model.items() if k != 'model_type'}
+        model_params = {k: v for k, v in conf.model.items() if k != "model_type"}
         return RNN(**model_params)
-    elif model_type == 'modular_rnn':
-        model_params = {k: v for k, v in conf.model.items() if k != 'model_type'}
+    elif model_type == "modular_rnn":
+        model_params = {k: v for k, v in conf.model.items() if k != "model_type"}
         return ModularRNN(**model_params)
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
@@ -47,51 +49,54 @@ def create_model(conf: DictConfig):
 def create_trainer(conf: DictConfig, model, log_dir: str = None):
     """Create trainer instance from config."""
     from trainers import ParallelTrainer, SequentialTrainer, OrthogonalSequentialTrainer
+
     # Get trainer type
-    trainer_type = conf.get('trainer_type', 'parallel')
+    trainer_type = conf.get("trainer_type", "parallel")
     # Create tasks
     tasks_with_names = create_tasks(conf)
     tasks = [t for t, _ in tasks_with_names]
     task_names = [name for _, name in tasks_with_names]
     # Get log_dir
     if log_dir is None:
-        log_dir = conf.training.get('log_dir', 'logs')
+        log_dir = conf.training.get("log_dir", "logs")
 
     # Extract eval flags (default True for each task)
-    task_eval_flags = [spec.get('eval', True) for spec in conf.tasks]
+    task_eval_flags = [spec.get("eval", True) for spec in conf.tasks]
 
     # Build trainer params dict
     trainer_params = {
-        'model': model,
-        'tasks': tasks,
-        'task_names': task_names,
-        'task_eval_flags': task_eval_flags,
-        'log_dir': log_dir,
-        'config': OmegaConf.to_container(conf, resolve=True),
-        **conf.training
+        "model": model,
+        "tasks": tasks,
+        "task_names": task_names,
+        "task_eval_flags": task_eval_flags,
+        "log_dir": log_dir,
+        "config": OmegaConf.to_container(conf, resolve=True),
+        **conf.training,
     }
 
     # Create appropriate trainer
-    if trainer_type == 'parallel':
+    if trainer_type == "parallel":
         weights = [spec.weight for spec in conf.tasks]
         assert abs(sum(weights) - 1.0) < 1e-2, "Task weights must roughly sum to 1.0"
         return ParallelTrainer(task_weights=weights, **trainer_params)
-    elif trainer_type in ['sequential', 'orthogonal_sequential']:
+    elif trainer_type in ["sequential", "orthogonal_sequential"]:
         num_steps = [spec.num_steps for spec in conf.tasks]
-        schedules = [spec.get('schedule') for spec in conf.tasks]
-        total_steps = conf.training.get('total_steps', 0)
-        assert sum(num_steps) == total_steps, "Sum of task num_steps must equal total_steps"
-        if trainer_type == 'sequential':
+        schedules = [spec.get("schedule") for spec in conf.tasks]
+        total_steps = conf.training.get("total_steps", 0)
+        assert sum(num_steps) == total_steps, (
+            "Sum of task num_steps must equal total_steps"
+        )
+        if trainer_type == "sequential":
             return SequentialTrainer(
                 task_num_steps=num_steps,
                 task_param_schedules=schedules,
-                **trainer_params
+                **trainer_params,
             )
         else:  # orthogonal_sequential
             return OrthogonalSequentialTrainer(
                 task_num_steps=num_steps,
                 task_param_schedules=schedules,
-                **trainer_params
+                **trainer_params,
             )
     else:
         raise ValueError(f"Unknown trainer_type: {trainer_type}")
@@ -100,6 +105,7 @@ def create_trainer(conf: DictConfig, model, log_dir: str = None):
 # ============================================================================
 # Main script
 # ============================================================================
+
 
 def set_random_seed(seed: int):
     """Set random seed for reproducibility across all libraries."""
@@ -127,11 +133,12 @@ def check_log_dir_exists(log_dir: Path) -> bool:
     # Prompt for confirmation
     response = input("Do you want to proceed? (y/n): ").strip().lower()
 
-    if response == 'y':
+    if response == "y":
         return True
     else:
         print("\nTraining cancelled.")
         return False
+
 
 def main():
     """Main training script with OmegaConf CLI interface.
@@ -157,8 +164,10 @@ def main():
             training.resume_run_id=abc123xyz
     """
     # Parse CLI
-    if len(sys.argv) < 2 or '=' in sys.argv[1]:
-        print("Error: Config file required!\nUsage: python main.py configs/instructed.yaml [key=value overrides...]")
+    if len(sys.argv) < 2 or "=" in sys.argv[1]:
+        print(
+            "Error: Config file required!\nUsage: python main.py configs/instructed.yaml [key=value overrides...]"
+        )
         sys.exit(1)
 
     config_path = sys.argv[1]
@@ -173,15 +182,15 @@ def main():
         conf = OmegaConf.merge(conf, OmegaConf.from_cli(cli_args))
 
     # Set random seed
-    random_seed = conf.get('random_seed', 42)
+    random_seed = conf.get("random_seed", 42)
     set_random_seed(random_seed)
     print(f"Random seed: {random_seed}")
 
     # Setup log directory
-    log_dir = Path(conf.training.get('log_dir', 'logs/test'))
+    log_dir = Path(conf.training.get("log_dir", "logs/test"))
 
     # Check if log_dir exists and get user confirmation (skip if resuming)
-    resume = conf.training.get('resume', False)
+    resume = conf.training.get("resume", False)
     if not resume and not check_log_dir_exists(log_dir):
         sys.exit(1)
 
@@ -189,7 +198,7 @@ def main():
 
     # Save config (skip if resuming - preserve original config)
     if not resume:
-        OmegaConf.save(conf, log_dir / 'config.yaml')
+        OmegaConf.save(conf, log_dir / "config.yaml")
     else:
         print(f"Resuming run - using existing config from {log_dir / 'config.yaml'}")
 
@@ -201,5 +210,5 @@ def main():
     trainer.train()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

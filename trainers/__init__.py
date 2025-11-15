@@ -6,8 +6,8 @@ from trainers.sequential_train import SequentialTrainer
 from trainers.orthogonal_train import OrthogonalSequentialTrainer
 
 __all__ = [
-    'BaseTrainer',
-    'ParallelTrainer',
-    'SequentialTrainer',
-    'OrthogonalSequentialTrainer',
+    "BaseTrainer",
+    "ParallelTrainer",
+    "SequentialTrainer",
+    "OrthogonalSequentialTrainer",
 ]

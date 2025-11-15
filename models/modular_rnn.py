@@ -24,14 +24,16 @@ class ModularRNN(nn.Module):
         tau_2: float = 100.0,  # Fast time constant (ms)
         dt: float = 20.0,  # ms
         cross_module_rank_pct: float = 0.1,  # Percentage for low-rank connections
-        activation: str = 'elu',
+        activation: str = "elu",
         noise_std: float = 0.1,
     ):
         super().__init__()
         self.input_size = input_size
         self.hidden_size_1 = hidden_size_1
         self.hidden_size_2 = hidden_size_2
-        self.hidden_size = hidden_size_1 + hidden_size_2  # Total for interface compatibility
+        self.hidden_size = (
+            hidden_size_1 + hidden_size_2
+        )  # Total for interface compatibility
         self.output_size = output_size
         self.tau_1 = tau_1
         self.tau_2 = tau_2
@@ -39,20 +41,22 @@ class ModularRNN(nn.Module):
         self.noise_std = noise_std
 
         # Compute low-rank dimension
-        self.cross_rank = max(1, int(cross_module_rank_pct * min(hidden_size_1, hidden_size_2)))
+        self.cross_rank = max(
+            1, int(cross_module_rank_pct * min(hidden_size_1, hidden_size_2))
+        )
 
         # Decay factors for each module
         self.alpha_1 = dt / tau_1
         self.alpha_2 = dt / tau_2
 
         # Activation function
-        if activation == 'elu':
+        if activation == "elu":
             self.activation = nn.ELU()
-        elif activation == 'softplus':
+        elif activation == "softplus":
             self.activation = nn.Softplus()
-        elif activation == 'relu':
+        elif activation == "relu":
             self.activation = nn.ReLU()
-        elif activation == 'tanh':
+        elif activation == "tanh":
             self.activation = nn.Tanh()
         else:
             raise ValueError(f"Unknown activation: {activation}")
@@ -67,16 +71,26 @@ class ModularRNN(nn.Module):
 
         # Cross-module connections (low-rank: W = U @ V.T)
         # Module 1 -> Module 2: [hidden_2, hidden_1] = [hidden_2, rank] @ [rank, hidden_1]
-        self.w_cross_12_V = nn.Linear(hidden_size_1, self.cross_rank, bias=False)  # V.T: [hidden_1, rank]
-        self.w_cross_12_U = nn.Linear(self.cross_rank, hidden_size_2, bias=False)  # U.T: [rank, hidden_2]
+        self.w_cross_12_V = nn.Linear(
+            hidden_size_1, self.cross_rank, bias=False
+        )  # V.T: [hidden_1, rank]
+        self.w_cross_12_U = nn.Linear(
+            self.cross_rank, hidden_size_2, bias=False
+        )  # U.T: [rank, hidden_2]
 
         # Module 2 -> Module 1: [hidden_1, hidden_2] = [hidden_1, rank] @ [rank, hidden_2]
-        self.w_cross_21_V = nn.Linear(hidden_size_2, self.cross_rank, bias=False)  # V.T: [hidden_2, rank]
-        self.w_cross_21_U = nn.Linear(self.cross_rank, hidden_size_1, bias=False)  # U.T: [rank, hidden_1]
+        self.w_cross_21_V = nn.Linear(
+            hidden_size_2, self.cross_rank, bias=False
+        )  # V.T: [hidden_2, rank]
+        self.w_cross_21_U = nn.Linear(
+            self.cross_rank, hidden_size_1, bias=False
+        )  # U.T: [rank, hidden_1]
 
         # Output weights (separate for each module)
         self.w_out_1 = nn.Linear(hidden_size_1, output_size, bias=True)
-        self.w_out_2 = nn.Linear(hidden_size_2, output_size, bias=False)  # No bias on second to avoid double bias
+        self.w_out_2 = nn.Linear(
+            hidden_size_2, output_size, bias=False
+        )  # No bias on second to avoid double bias
 
         # Initialize weights
         self._init_weights()
@@ -107,7 +121,9 @@ class ModularRNN(nn.Module):
         nn.init.xavier_uniform_(self.w_out_1.weight)
         nn.init.xavier_uniform_(self.w_out_2.weight)
 
-    def forward(self, input: torch.Tensor, hidden: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, input: torch.Tensor, hidden: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through the modular RNN for a single timestep.
 
@@ -122,17 +138,27 @@ class ModularRNN(nn.Module):
         batch_size = input.shape[0]
 
         # Split hidden state into module components
-        h_1 = hidden[:, :self.hidden_size_1]  # [batch_size, hidden_size_1]
-        h_2 = hidden[:, self.hidden_size_1:]  # [batch_size, hidden_size_2]
+        h_1 = hidden[:, : self.hidden_size_1]  # [batch_size, hidden_size_1]
+        h_2 = hidden[:, self.hidden_size_1 :]  # [batch_size, hidden_size_2]
 
         # Generate noise for each module
-        noise_1 = torch.randn(batch_size, self.hidden_size_1, device=input.device) * self.noise_std
-        noise_2 = torch.randn(batch_size, self.hidden_size_2, device=input.device) * self.noise_std
+        noise_1 = (
+            torch.randn(batch_size, self.hidden_size_1, device=input.device)
+            * self.noise_std
+        )
+        noise_2 = (
+            torch.randn(batch_size, self.hidden_size_2, device=input.device)
+            * self.noise_std
+        )
 
         # Compute cross-module connections (low-rank)
         # W_cross_12 @ h_1 = U @ (V.T @ h_1) = U(V(h_1))
-        cross_12 = self.w_cross_12_U(self.w_cross_12_V(h_1))  # Module 1 -> 2: [B, hidden_2]
-        cross_21 = self.w_cross_21_U(self.w_cross_21_V(h_2))  # Module 2 -> 1: [B, hidden_1]
+        cross_12 = self.w_cross_12_U(
+            self.w_cross_12_V(h_1)
+        )  # Module 1 -> 2: [B, hidden_2]
+        cross_21 = self.w_cross_21_U(
+            self.w_cross_21_V(h_2)
+        )  # Module 2 -> 1: [B, hidden_1]
 
         # Compute total input for each module
         # Module 1: i_1 = W_rec_1 @ h_1 + W_in_1 @ u + W_cross_21 @ h_2 + noise_1
@@ -147,8 +173,12 @@ class ModularRNN(nn.Module):
 
         # Update hidden states with different time constants
         # h_{t+1} = (1 - α) * h_t + α * φ(i_t)
-        new_h_1 = (1 - self.alpha_1) * h_1 + self.alpha_1 * self.activation(total_input_1)
-        new_h_2 = (1 - self.alpha_2) * h_2 + self.alpha_2 * self.activation(total_input_2)
+        new_h_1 = (1 - self.alpha_1) * h_1 + self.alpha_1 * self.activation(
+            total_input_1
+        )
+        new_h_2 = (1 - self.alpha_2) * h_2 + self.alpha_2 * self.activation(
+            total_input_2
+        )
 
         # Concatenate for interface compatibility
         new_hidden = torch.cat([new_h_1, new_h_2], dim=1)

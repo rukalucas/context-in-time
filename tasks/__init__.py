@@ -6,4 +6,10 @@ from .instructed import InstructedTask
 from .inferred import InferredTask
 from .transition import TransitionTask
 
-__all__ = ['BaseTask', 'SingleTrialTask', 'InstructedTask', 'InferredTask', 'TransitionTask']
+__all__ = [
+    "BaseTask",
+    "SingleTrialTask",
+    "InstructedTask",
+    "InferredTask",
+    "TransitionTask",
+]

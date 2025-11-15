@@ -34,14 +34,16 @@ def plot_psychometric_curve(task, model, num_trials_per_interval=100, save_path=
             for _ in range(num_trials_per_interval):
                 # Generate trial with fixed Δt
                 trial = task.generate_trial(delta_t=delta_t)
-                inputs = torch.from_numpy(trial['inputs'])  # [C, T]
-                targets = torch.from_numpy(trial['outputs']).unsqueeze(0)  # [1, C_out, T]
+                inputs = torch.from_numpy(trial["inputs"])  # [C, T]
+                targets = torch.from_numpy(trial["outputs"]).unsqueeze(
+                    0
+                )  # [1, C_out, T]
 
                 # Forward pass
                 outputs = _process_single_trial(model, inputs)
 
                 # Check decision accuracy (during response period)
-                T = trial['trial_length']
+                T = trial["trial_length"]
                 # Last 300ms of trial
                 eval_start = T - int(300 / task.dt)
                 decision_pred = outputs[0, 0, eval_start:T].mean().item()
@@ -52,9 +54,9 @@ def plot_psychometric_curve(task, model, num_trials_per_interval=100, save_path=
                     correct += 1
 
                 # Check if Pro choice
-                if decision_pred > 0 and trial['direction'] > 0:
+                if decision_pred > 0 and trial["direction"] > 0:
                     pro_count += 1
-                elif decision_pred < 0 and trial['direction'] < 0:
+                elif decision_pred < 0 and trial["direction"] < 0:
                     pro_count += 1
 
                 total += 1
@@ -67,30 +69,34 @@ def plot_psychometric_curve(task, model, num_trials_per_interval=100, save_path=
 
     # Accuracy
     ax = axes[0]
-    ax.plot(intervals, accuracies, 'o-', linewidth=2, markersize=8)
-    ax.axhline(0.5, color='k', linestyle='--', alpha=0.3, label='Chance')
-    ax.axvline(task.decision_threshold, color='r', linestyle='--', alpha=0.3, label='Threshold')
-    ax.set_xlabel('Δt (ms)')
-    ax.set_ylabel('Accuracy')
-    ax.set_title('Decision Accuracy vs Interval Duration')
+    ax.plot(intervals, accuracies, "o-", linewidth=2, markersize=8)
+    ax.axhline(0.5, color="k", linestyle="--", alpha=0.3, label="Chance")
+    ax.axvline(
+        task.decision_threshold, color="r", linestyle="--", alpha=0.3, label="Threshold"
+    )
+    ax.set_xlabel("Δt (ms)")
+    ax.set_ylabel("Accuracy")
+    ax.set_title("Decision Accuracy vs Interval Duration")
     ax.grid(True, alpha=0.3)
     ax.legend()
 
     # Pro probability
     ax = axes[1]
-    ax.plot(intervals, pro_probs, 'o-', linewidth=2, markersize=8, color='C1')
-    ax.axhline(0.5, color='k', linestyle='--', alpha=0.3, label='Equal')
-    ax.axvline(task.decision_threshold, color='r', linestyle='--', alpha=0.3, label='Threshold')
-    ax.set_xlabel('Δt (ms)')
-    ax.set_ylabel('P(Pro saccade)')
-    ax.set_title('Psychometric Curve')
+    ax.plot(intervals, pro_probs, "o-", linewidth=2, markersize=8, color="C1")
+    ax.axhline(0.5, color="k", linestyle="--", alpha=0.3, label="Equal")
+    ax.axvline(
+        task.decision_threshold, color="r", linestyle="--", alpha=0.3, label="Threshold"
+    )
+    ax.set_xlabel("Δt (ms)")
+    ax.set_ylabel("P(Pro saccade)")
+    ax.set_title("Psychometric Curve")
     ax.grid(True, alpha=0.3)
     ax.legend()
 
     plt.tight_layout()
 
     if save_path is not None:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"Saved psychometric curve to {save_path}")
 
     return fig, (accuracies, pro_probs)
@@ -111,7 +117,7 @@ def plot_hidden_state_trajectories(task, model, num_trials=5, save_path=None):
     with torch.no_grad():
         # Generate batch
         batch = task.generate_batch(num_trials)
-        inputs = batch['inputs']  # [B, T, C]
+        inputs = batch["inputs"]  # [B, T, C]
 
         B, T, C = inputs.shape
 
@@ -138,10 +144,12 @@ def plot_hidden_state_trajectories(task, model, num_trials=5, save_path=None):
 
         # Move to CPU
         hidden_states = hidden_states.cpu().numpy()  # (B, H, T)
-        trial_lengths = batch['trial_length']
+        trial_lengths = batch["trial_length"]
 
         # Plot
-        fig, axes = plt.subplots(num_trials, 1, figsize=(12, 3*num_trials), sharex=True)
+        fig, axes = plt.subplots(
+            num_trials, 1, figsize=(12, 3 * num_trials), sharex=True
+        )
         if num_trials == 1:
             axes = [axes]
 
@@ -155,15 +163,17 @@ def plot_hidden_state_trajectories(task, model, num_trials=5, save_path=None):
             for j in range(num_units_to_plot):
                 ax.plot(time_ms, hidden_states[i, j, :T], alpha=0.5, linewidth=1)
 
-            ax.set_ylabel('Hidden state')
-            ax.set_title(f'Trial {i+1}: t_s={batch["t_s"][i]:.0f}ms, t_m={batch["t_m"][i]:.0f}ms, stim_direction={batch["stim_direction"][i]:+.0f}')
+            ax.set_ylabel("Hidden state")
+            ax.set_title(
+                f"Trial {i + 1}: t_s={batch['t_s'][i]:.0f}ms, t_m={batch['t_m'][i]:.0f}ms, stim_direction={batch['stim_direction'][i]:+.0f}"
+            )
             ax.grid(True, alpha=0.3)
 
-        axes[-1].set_xlabel('Time (ms)')
+        axes[-1].set_xlabel("Time (ms)")
         plt.tight_layout()
 
         if save_path is not None:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            plt.savefig(save_path, dpi=150, bbox_inches="tight")
             print(f"Saved trajectories to {save_path}")
 
     return fig
@@ -184,9 +194,9 @@ def plot_training_metrics(log_dir, save_path=None):
     ea.Reload()
 
     # Get scalars
-    loss = ea.Scalars('train/loss')
-    decision_acc = ea.Scalars('train/decision_accuracy')
-    fixation_acc = ea.Scalars('train/fixation_accuracy')
+    loss = ea.Scalars("train/loss")
+    decision_acc = ea.Scalars("train/decision_accuracy")
+    fixation_acc = ea.Scalars("train/fixation_accuracy")
 
     # Extract data
     loss_steps = [s.step for s in loss]
@@ -203,39 +213,41 @@ def plot_training_metrics(log_dir, save_path=None):
 
     ax = axes[0]
     ax.plot(loss_steps, loss_values, linewidth=2)
-    ax.set_xlabel('Training step')
-    ax.set_ylabel('Loss')
-    ax.set_title('Training Loss')
+    ax.set_xlabel("Training step")
+    ax.set_ylabel("Loss")
+    ax.set_title("Training Loss")
     ax.grid(True, alpha=0.3)
 
     ax = axes[1]
-    ax.plot(decision_steps, decision_values, linewidth=2, label='Decision')
-    ax.axhline(0.9, color='r', linestyle='--', alpha=0.3, label='Target (0.9)')
-    ax.set_xlabel('Training step')
-    ax.set_ylabel('Accuracy')
-    ax.set_title('Decision Accuracy')
+    ax.plot(decision_steps, decision_values, linewidth=2, label="Decision")
+    ax.axhline(0.9, color="r", linestyle="--", alpha=0.3, label="Target (0.9)")
+    ax.set_xlabel("Training step")
+    ax.set_ylabel("Accuracy")
+    ax.set_title("Decision Accuracy")
     ax.set_ylim([0, 1])
     ax.grid(True, alpha=0.3)
     ax.legend()
 
     ax = axes[2]
-    ax.plot(fixation_steps, fixation_values, linewidth=2, color='C1')
-    ax.set_xlabel('Training step')
-    ax.set_ylabel('Accuracy')
-    ax.set_title('Fixation Accuracy')
+    ax.plot(fixation_steps, fixation_values, linewidth=2, color="C1")
+    ax.set_xlabel("Training step")
+    ax.set_ylabel("Accuracy")
+    ax.set_title("Fixation Accuracy")
     ax.set_ylim([0, 1])
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
     if save_path is not None:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"Saved training metrics to {save_path}")
 
     return fig
 
 
-def plot_rule_specific_psychometric_curves(task, model, num_trials_per_interval=100, save_path=None):
+def plot_rule_specific_psychometric_curves(
+    task, model, num_trials_per_interval=100, save_path=None
+):
     """
     Plot psychometric curves for SingleTrialTask, separated by rule.
 
@@ -273,14 +285,16 @@ def plot_rule_specific_psychometric_curves(task, model, num_trials_per_interval=
                 for rule in [1, -1]:
                     # Generate trial with fixed Δt and rule
                     trial = task.generate_trial(delta_t=delta_t, rule=rule)
-                    inputs = torch.from_numpy(trial['inputs'])  # [C, T]
-                    targets = torch.from_numpy(trial['outputs']).unsqueeze(0)  # [1, C_out, T]
+                    inputs = torch.from_numpy(trial["inputs"])  # [C, T]
+                    targets = torch.from_numpy(trial["outputs"]).unsqueeze(
+                        0
+                    )  # [1, C_out, T]
 
                     # Forward pass
                     outputs = _process_single_trial(model, inputs)
 
                     # Check decision accuracy (during response period)
-                    T = trial['trial_length']
+                    T = trial["trial_length"]
                     # Last 300ms of trial
                     eval_start = T - int(300 / task.dt)
                     decision_pred = outputs[0, 0, eval_start:T].mean().item()
@@ -291,9 +305,9 @@ def plot_rule_specific_psychometric_curves(task, model, num_trials_per_interval=
 
                     # Check if Pro choice
                     is_pro = False
-                    if decision_pred > 0 and trial['direction'] > 0:
+                    if decision_pred > 0 and trial["direction"] > 0:
                         is_pro = True
-                    elif decision_pred < 0 and trial['direction'] < 0:
+                    elif decision_pred < 0 and trial["direction"] < 0:
                         is_pro = True
 
                     # Update rule-specific counters
@@ -320,46 +334,65 @@ def plot_rule_specific_psychometric_curves(task, model, num_trials_per_interval=
 
     # Rule 1 psychometric curve
     ax = axes[0]
-    ax.plot(intervals, rule1_pro_probs, 'o-', linewidth=2, markersize=8, color='C0')
-    ax.axhline(0.5, color='k', linestyle='--', alpha=0.3, label='Equal')
-    ax.axvline(task.decision_threshold, color='r', linestyle='--', alpha=0.3, label='Threshold')
-    ax.set_xlabel('Δt (ms)')
-    ax.set_ylabel('P(Pro saccade)')
-    ax.set_title('Rule 1: Short→Pro, Long→Anti')
+    ax.plot(intervals, rule1_pro_probs, "o-", linewidth=2, markersize=8, color="C0")
+    ax.axhline(0.5, color="k", linestyle="--", alpha=0.3, label="Equal")
+    ax.axvline(
+        task.decision_threshold, color="r", linestyle="--", alpha=0.3, label="Threshold"
+    )
+    ax.set_xlabel("Δt (ms)")
+    ax.set_ylabel("P(Pro saccade)")
+    ax.set_title("Rule 1: Short→Pro, Long→Anti")
     ax.set_ylim([0, 1])
     ax.grid(True, alpha=0.3)
     ax.legend()
     # Add accuracy annotation
-    ax.text(0.05, 0.95, f'Accuracy: {np.mean(rule1_accuracies):.3f}',
-            transform=ax.transAxes, verticalalignment='top')
+    ax.text(
+        0.05,
+        0.95,
+        f"Accuracy: {np.mean(rule1_accuracies):.3f}",
+        transform=ax.transAxes,
+        verticalalignment="top",
+    )
 
     # Rule 2 psychometric curve
     ax = axes[1]
-    ax.plot(intervals, rule2_pro_probs, 'o-', linewidth=2, markersize=8, color='C1')
-    ax.axhline(0.5, color='k', linestyle='--', alpha=0.3, label='Equal')
-    ax.axvline(task.decision_threshold, color='r', linestyle='--', alpha=0.3, label='Threshold')
-    ax.set_xlabel('Δt (ms)')
-    ax.set_ylabel('P(Pro saccade)')
-    ax.set_title('Rule 2: Short→Anti, Long→Pro')
+    ax.plot(intervals, rule2_pro_probs, "o-", linewidth=2, markersize=8, color="C1")
+    ax.axhline(0.5, color="k", linestyle="--", alpha=0.3, label="Equal")
+    ax.axvline(
+        task.decision_threshold, color="r", linestyle="--", alpha=0.3, label="Threshold"
+    )
+    ax.set_xlabel("Δt (ms)")
+    ax.set_ylabel("P(Pro saccade)")
+    ax.set_title("Rule 2: Short→Anti, Long→Pro")
     ax.set_ylim([0, 1])
     ax.grid(True, alpha=0.3)
     ax.legend()
     # Add accuracy annotation
-    ax.text(0.05, 0.95, f'Accuracy: {np.mean(rule2_accuracies):.3f}',
-            transform=ax.transAxes, verticalalignment='top')
+    ax.text(
+        0.05,
+        0.95,
+        f"Accuracy: {np.mean(rule2_accuracies):.3f}",
+        transform=ax.transAxes,
+        verticalalignment="top",
+    )
 
     plt.tight_layout()
 
     if save_path is not None:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
         print(f"Saved rule-specific psychometric curves to {save_path}")
 
     return fig, (rule1_accuracies, rule1_pro_probs, rule2_accuracies, rule2_pro_probs)
 
 
-def plot_instructed_trial(task, model, delta_t: Optional[float] = None,
-                         direction: Optional[int] = None, rule: Optional[int] = None,
-                         save_path: Optional[str] = None):
+def plot_instructed_trial(
+    task,
+    model,
+    delta_t: Optional[float] = None,
+    direction: Optional[int] = None,
+    rule: Optional[int] = None,
+    save_path: Optional[str] = None,
+):
     """
     Plot a single trial from SingleTrialTask with 3-subplot structure.
 
@@ -376,8 +409,8 @@ def plot_instructed_trial(task, model, delta_t: Optional[float] = None,
     with torch.no_grad():
         # Generate trial
         trial = task.generate_trial(delta_t=delta_t, direction=direction, rule=rule)
-        inputs_raw = torch.from_numpy(trial['inputs'])  # [C, T]
-        targets = torch.from_numpy(trial['outputs']).unsqueeze(0)  # [1, C_out, T]
+        inputs_raw = torch.from_numpy(trial["inputs"])  # [C, T]
+        targets = torch.from_numpy(trial["outputs"]).unsqueeze(0)  # [1, C_out, T]
 
         # Forward pass
         outputs = _process_single_trial(model, inputs_raw)
@@ -387,7 +420,7 @@ def plot_instructed_trial(task, model, delta_t: Optional[float] = None,
         targets = targets.cpu().numpy()
         outputs = outputs.cpu().numpy()
 
-        T = trial['trial_length']
+        T = trial["trial_length"]
         time_ms = np.arange(T) * task.dt
 
         # Create 3-subplot figure
@@ -395,44 +428,102 @@ def plot_instructed_trial(task, model, delta_t: Optional[float] = None,
 
         # Top subplot: All 5 input channels
         ax = axes[0]
-        ax.plot(time_ms, inputs[0, 0, :T], label='Timing stimulus', linewidth=2)
-        ax.plot(time_ms, inputs[0, 1, :T], label='Direction cue', linewidth=2)
-        ax.plot(time_ms, inputs[0, 2, :T], label='H fixation signal', linewidth=2)
-        ax.plot(time_ms, inputs[0, 3, :T], label='V fixation signal', linewidth=2)
-        ax.plot(time_ms, inputs[0, 4, :T], label='Rule cue', linewidth=2)
-        ax.set_ylabel('Input value')
-        rule_name = 'Rule 1' if trial['rule'] == 1 else 'Rule 2'
-        ax.set_title(f'Inputs (t_s={trial["t_s"]:.0f}ms, t_m={trial["t_m"]:.0f}ms, stim_direction={trial["stim_direction"]:+.0f}, {rule_name})')
-        ax.legend(loc='upper right', fontsize=8)
+        ax.plot(time_ms, inputs[0, 0, :T], label="Timing stimulus", linewidth=2)
+        ax.plot(time_ms, inputs[0, 1, :T], label="Direction cue", linewidth=2)
+        ax.plot(time_ms, inputs[0, 2, :T], label="H fixation signal", linewidth=2)
+        ax.plot(time_ms, inputs[0, 3, :T], label="V fixation signal", linewidth=2)
+        ax.plot(time_ms, inputs[0, 4, :T], label="Rule cue", linewidth=2)
+        ax.set_ylabel("Input value")
+        rule_name = "Rule 1" if trial["rule"] == 1 else "Rule 2"
+        ax.set_title(
+            f"Inputs (t_s={trial['t_s']:.0f}ms, t_m={trial['t_m']:.0f}ms, stim_direction={trial['stim_direction']:+.0f}, {rule_name})"
+        )
+        ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.3)
 
         # Middle subplot: Rule-related outputs
         ax = axes[1]
-        ax.plot(time_ms, outputs[0, 2, :T], label='Rule report (network)', linewidth=2, color='C0')
-        ax.plot(time_ms, targets[0, 2, :T], label='Rule report target', linewidth=2, linestyle='--', color='C0', alpha=0.7)
-        ax.plot(time_ms, outputs[0, 3, :T], label='V fixation (network)', linewidth=2, color='C1')
-        ax.plot(time_ms, targets[0, 3, :T], label='V fixation target', linewidth=2, linestyle='--', color='C1', alpha=0.7)
-        ax.set_ylabel('Output value')
-        ax.set_title('Rule Report Outputs')
-        ax.legend(loc='upper right', fontsize=8)
+        ax.plot(
+            time_ms,
+            outputs[0, 2, :T],
+            label="Rule report (network)",
+            linewidth=2,
+            color="C0",
+        )
+        ax.plot(
+            time_ms,
+            targets[0, 2, :T],
+            label="Rule report target",
+            linewidth=2,
+            linestyle="--",
+            color="C0",
+            alpha=0.7,
+        )
+        ax.plot(
+            time_ms,
+            outputs[0, 3, :T],
+            label="V fixation (network)",
+            linewidth=2,
+            color="C1",
+        )
+        ax.plot(
+            time_ms,
+            targets[0, 3, :T],
+            label="V fixation target",
+            linewidth=2,
+            linestyle="--",
+            color="C1",
+            alpha=0.7,
+        )
+        ax.set_ylabel("Output value")
+        ax.set_title("Rule Report Outputs")
+        ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.3)
 
         # Bottom subplot: Decision-related outputs
         ax = axes[2]
-        ax.plot(time_ms, outputs[0, 0, :T], label='Decision (network)', linewidth=2, color='C0')
-        ax.plot(time_ms, targets[0, 0, :T], label='Decision target', linewidth=2, linestyle='--', color='C0', alpha=0.7)
-        ax.plot(time_ms, outputs[0, 1, :T], label='H fixation (network)', linewidth=2, color='C1')
-        ax.plot(time_ms, targets[0, 1, :T], label='H fixation target', linewidth=2, linestyle='--', color='C1', alpha=0.7)
-        ax.set_xlabel('Time (ms)')
-        ax.set_ylabel('Output value')
-        ax.set_title('Decision Outputs')
-        ax.legend(loc='upper right', fontsize=8)
+        ax.plot(
+            time_ms,
+            outputs[0, 0, :T],
+            label="Decision (network)",
+            linewidth=2,
+            color="C0",
+        )
+        ax.plot(
+            time_ms,
+            targets[0, 0, :T],
+            label="Decision target",
+            linewidth=2,
+            linestyle="--",
+            color="C0",
+            alpha=0.7,
+        )
+        ax.plot(
+            time_ms,
+            outputs[0, 1, :T],
+            label="H fixation (network)",
+            linewidth=2,
+            color="C1",
+        )
+        ax.plot(
+            time_ms,
+            targets[0, 1, :T],
+            label="H fixation target",
+            linewidth=2,
+            linestyle="--",
+            color="C1",
+            alpha=0.7,
+        )
+        ax.set_xlabel("Time (ms)")
+        ax.set_ylabel("Output value")
+        ax.set_title("Decision Outputs")
+        ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.3)
 
         plt.tight_layout()
 
         if save_path is not None:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            plt.savefig(save_path, dpi=150, bbox_inches="tight")
             print(f"Saved trial visualization to {save_path}")
 
     return fig

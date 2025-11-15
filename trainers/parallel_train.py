@@ -27,10 +27,12 @@ class ParallelTrainer(BaseTrainer):
         task_eval_flags: Optional[list[bool]] = None,
         num_eval_samples: int = 100,
         total_steps: int = 10000,
-        **kwargs
+        **kwargs,
     ):
         if len(tasks) != len(task_names) != len(task_weights):
-            raise ValueError("tasks, task_names, and task_weights must have same length")
+            raise ValueError(
+                "tasks, task_names, and task_weights must have same length"
+            )
 
         if abs(sum(task_weights) - 1.0) > 1e-2:
             raise ValueError("task_weights must approx. sum to 1.0")
@@ -53,7 +55,9 @@ class ParallelTrainer(BaseTrainer):
         self.multi_task = len(self.tasks) > 1
 
         # Validate dt consistency between model and tasks
-        assert all(task.dt == model.dt for task in tasks), f"All tasks must have same dt as model (model.dt={model.dt})"
+        assert all(task.dt == model.dt for task in tasks), (
+            f"All tasks must have same dt as model (model.dt={model.dt})"
+        )
 
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
@@ -75,7 +79,7 @@ class ParallelTrainer(BaseTrainer):
 
         # Add loss if provided
         if loss is not None:
-            all_metrics['loss'] = loss
+            all_metrics["loss"] = loss
 
         for eval_task_idx, (task, task_name, eval_batch, eval_flag) in enumerate(
             zip(self.tasks, self.task_names, self.eval_batches, self.task_eval_flags)
@@ -84,40 +88,44 @@ class ParallelTrainer(BaseTrainer):
                 continue
 
             # Compute accuracies and log trial figures
-            task_metrics = self.eval_task(task, eval_batch, log_figures=True,
-                                         task_name=task_name, num_trials=2)
+            task_metrics = self.eval_task(
+                task, eval_batch, log_figures=True, task_name=task_name, num_trials=2
+            )
 
             # Always add task prefix for consistency
             for key, value in task_metrics.items():
-                all_metrics[f'{task_name}/{key}'] = value
+                all_metrics[f"{task_name}/{key}"] = value
 
         # Add task sampling counts for multi-task
         if self.multi_task:
             for name, count in zip(self.task_names, self.task_step_counts):
-                all_metrics[f'task_sampling/{name}_count'] = count
+                all_metrics[f"task_sampling/{name}_count"] = count
 
-        print(f"Evaluation after step {self.step}: " +
-              ", ".join([f"{k}={v:.4f}" for k, v in all_metrics.items()]))
+        print(
+            f"Evaluation after step {self.step}: "
+            + ", ".join([f"{k}={v:.4f}" for k, v in all_metrics.items()])
+        )
 
         # Log metrics to wandb
         wandb.log(all_metrics, step=self.step)
 
         # Save latest checkpoint
-        self.save_checkpoint(filename='latest.pt')
+        self.save_checkpoint(filename="latest.pt")
 
-    def save_checkpoint(self, filename: str = 'checkpoint.pt') -> None:
+    def save_checkpoint(self, filename: str = "checkpoint.pt") -> None:
         """Save model checkpoint with task sampling statistics."""
         super().save_checkpoint(
-            filename=filename,
-            extra_state={'task_step_counts': self.task_step_counts}
+            filename=filename, extra_state={"task_step_counts": self.task_step_counts}
         )
 
-    def load_checkpoint(self, path: str | Path = None, reset_counters: bool = False) -> dict:
+    def load_checkpoint(
+        self, path: str | Path = None, reset_counters: bool = False
+    ) -> dict:
         """Load model checkpoint and optionally restore task sampling statistics."""
         extra_state = super().load_checkpoint(path, reset_counters)
         # Only restore task_step_counts if not resetting counters
-        if not reset_counters and 'task_step_counts' in extra_state:
-            self.task_step_counts = extra_state['task_step_counts']
+        if not reset_counters and "task_step_counts" in extra_state:
+            self.task_step_counts = extra_state["task_step_counts"]
         return extra_state
 
     def train(
@@ -129,7 +137,9 @@ class ParallelTrainer(BaseTrainer):
         final_step = starting_step + self.total_steps
 
         if starting_step > 0:
-            print(f"Resuming training for {self.total_steps} steps (step {starting_step} → {final_step})...")
+            print(
+                f"Resuming training for {self.total_steps} steps (step {starting_step} → {final_step})..."
+            )
         else:
             print(f"Starting training for {self.total_steps} steps...")
         if self.multi_task:
@@ -149,11 +159,15 @@ class ParallelTrainer(BaseTrainer):
                 if self.multi_task:
                     task_name = self.task_names[task_idx] if loss is not None else ""
                     task_str = f" [{task_name}]" if task_name else ""
-                    print(f"Step {self.step}/{self.total_steps}{task_str}"
-                          + (f": loss={loss:.4f}" if loss is not None else ""))
+                    print(
+                        f"Step {self.step}/{self.total_steps}{task_str}"
+                        + (f": loss={loss:.4f}" if loss is not None else "")
+                    )
                 else:
-                    print(f"Step {self.step}/{self.total_steps}"
-                          + (f": loss={loss:.4f}" if loss is not None else ""))
+                    print(
+                        f"Step {self.step}/{self.total_steps}"
+                        + (f": loss={loss:.4f}" if loss is not None else "")
+                    )
 
             # Training step
             self.model.train()
@@ -170,11 +184,13 @@ class ParallelTrainer(BaseTrainer):
 
             # Checkpointing
             if self.step % self.checkpoint_interval == 0:
-                self.save_checkpoint(f'{self.step}.pt')
+                self.save_checkpoint(f"{self.step}.pt")
 
         print("Training complete!")
 
         if len(self.tasks) > 1:
-            print(f"Final task step counts: {dict(zip(self.task_names, self.task_step_counts))}")
+            print(
+                f"Final task step counts: {dict(zip(self.task_names, self.task_step_counts))}"
+            )
 
         self.close()

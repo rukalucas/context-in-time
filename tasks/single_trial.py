@@ -29,12 +29,14 @@ class SingleTrialTask(BaseTask):
 
     def __init__(self, **kwargs):
         """Initialize single-trial instructed timing task."""
-        if 'trials_per_sequence' in kwargs and kwargs['trials_per_sequence'] != 1:
-            raise ValueError("SingleTrialTask only supports single trials (trials_per_sequence=1).")
-        kwargs['trials_per_sequence'] = 1  # Single trial only
-        kwargs['inter_trial_interval'] = 0.0 # No ITI
-        kwargs['reward_duration'] = 0.0
-        kwargs['rule_cue_prob'] = 1.0  # Always show rule cue
+        if "trials_per_sequence" in kwargs and kwargs["trials_per_sequence"] != 1:
+            raise ValueError(
+                "SingleTrialTask only supports single trials (trials_per_sequence=1)."
+            )
+        kwargs["trials_per_sequence"] = 1  # Single trial only
+        kwargs["inter_trial_interval"] = 0.0  # No ITI
+        kwargs["reward_duration"] = 0.0
+        kwargs["rule_cue_prob"] = 1.0  # Always show rule cue
 
         super().__init__(**kwargs)
         self.name = "Single-Trial"

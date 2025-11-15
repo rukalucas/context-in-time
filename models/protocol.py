@@ -16,9 +16,7 @@ class Model(Protocol):
     output_size: int
 
     def forward(
-        self,
-        input: torch.Tensor,
-        hidden: torch.Tensor
+        self, input: torch.Tensor, hidden: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through the model for a single timestep.

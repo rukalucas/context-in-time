@@ -22,7 +22,7 @@ class BaseTask:
     """
 
     # Metrics returned by compute_accuracy() - subclasses can override
-    metric_names = ['decision_accuracy', 'rule_accuracy']
+    metric_names = ["decision_accuracy", "rule_accuracy"]
 
     def __init__(
         self,
@@ -52,25 +52,45 @@ class BaseTask:
         # Core timing parameters
         self.dt = dt  # Timestep size in milliseconds
         self.pulse_width = pulse_width  # Duration of timing pulse flashes in ms
-        self.decision_threshold = decision_threshold  # Time boundary for short/long decisions (850ms)
-        self.delta_t_range = (delta_t_min, delta_t_max)  # Range of stimulus intervals to sample from
-        self.input_noise_std = input_noise_std  # Std dev of Gaussian noise added to inputs
-        self.w_m = w_m  # Weber fraction for scalar timing noise (measured time variance)
+        self.decision_threshold = (
+            decision_threshold  # Time boundary for short/long decisions (850ms)
+        )
+        self.delta_t_range = (
+            delta_t_min,
+            delta_t_max,
+        )  # Range of stimulus intervals to sample from
+        self.input_noise_std = (
+            input_noise_std  # Std dev of Gaussian noise added to inputs
+        )
+        self.w_m = (
+            w_m  # Weber fraction for scalar timing noise (measured time variance)
+        )
         self.discrete_eval = discrete_eval  # If True, sample from discrete intervals; if False, continuous uniform
-        self.eval_intervals = np.array([530, 610, 690, 770, 850, 930, 1010, 1090, 1170])  # Discrete eval intervals
+        self.eval_intervals = np.array(
+            [530, 610, 690, 770, 850, 930, 1010, 1090, 1170]
+        )  # Discrete eval intervals
 
         # Trial structure parameters
-        self.fixation_delay_range = (fixation_delay_min, fixation_delay_max)  # Variable fixation delay range
-        self.rule_report_period = rule_report_period  # Duration of rule report response period
+        self.fixation_delay_range = (
+            fixation_delay_min,
+            fixation_delay_max,
+        )  # Variable fixation delay range
+        self.rule_report_period = (
+            rule_report_period  # Duration of rule report response period
+        )
         self.response_period = response_period  # Duration of decision response period
         self.grace_period = grace_period  # Grace period at start of response (no loss penalty to avoid sharp changes in target)
         self.fixation_grace_period = fixation_grace_period  # Grace period after rule report when returning to fixation
 
         # Sequence parameters
-        self.inter_trial_interval = inter_trial_interval  # Duration between trials in ms
+        self.inter_trial_interval = (
+            inter_trial_interval  # Duration between trials in ms
+        )
         self.reward_duration = reward_duration  # Duration of reward signal during ITI
         self.block_min = block_min  # Minimum block length (trials)
-        self.block_mean = block_mean  # Mean of geometric distribution for additional block trials
+        self.block_mean = (
+            block_mean  # Mean of geometric distribution for additional block trials
+        )
         self.rule_cue_prob = rule_cue_prob  # Probability of showing rule cue per trial
         self.trials_per_sequence = trials_per_sequence  # Number of trials per sequence
 
@@ -78,10 +98,14 @@ class BaseTask:
         self.name = self.__class__.__name__.replace("Task", " Task")
 
         # Compute max trial length
-        max_rule_epoch = int(self.fixation_delay_range[1] / dt) + int(rule_report_period / dt)
-        max_timing_epoch = (int(self.fixation_delay_range[1] / dt) +
-                           int((self.delta_t_range[1]) / dt) +
-                           int(response_period / dt))
+        max_rule_epoch = int(self.fixation_delay_range[1] / dt) + int(
+            rule_report_period / dt
+        )
+        max_timing_epoch = (
+            int(self.fixation_delay_range[1] / dt)
+            + int((self.delta_t_range[1]) / dt)
+            + int(response_period / dt)
+        )
         self.max_timesteps = max_rule_epoch + max_timing_epoch
 
         # ITI parameters
@@ -100,13 +124,15 @@ class BaseTask:
         t_m = np.clip(t_m, self.delta_t_range[0], self.delta_t_range[1])
         return t_s, t_m
 
-    def _compute_decision(self, t_s: float, stim_direction: float, rule: float) -> float:
+    def _compute_decision(
+        self, t_s: float, stim_direction: float, rule: float
+    ) -> float:
         """Compute decision based on rule, true stimulus time, and direction."""
         if np.isclose(t_s, self.decision_threshold):
             return np.random.choice([-stim_direction, stim_direction])
-        if rule == 1.0: # C1 in Morteza's paper
+        if rule == 1.0:  # C1 in Morteza's paper
             return stim_direction if t_s < self.decision_threshold else -stim_direction
-        elif rule == -1.0: # C2
+        elif rule == -1.0:  # C2
             return -stim_direction if t_s < self.decision_threshold else stim_direction
         else:
             raise NotImplementedError(f"Unknown rule={rule}")
@@ -141,7 +167,9 @@ class BaseTask:
             stim_direction = np.random.choice([-1, 1])
         if rule is None:
             rule = np.random.choice([-1, 1])
-        t_s, t_m = self._sample_stimulus_time(t_s) # if t_s is None, it is also sampled here
+        t_s, t_m = self._sample_stimulus_time(
+            t_s
+        )  # if t_s is None, it is also sampled here
 
         # Sample variable delays at the beginning of the trial and before timing epoch
         initial_fixation_rule = np.random.uniform(*self.fixation_delay_range)
@@ -154,19 +182,30 @@ class BaseTask:
         t_pulse = int(self.pulse_width / self.dt)
         t_inter = int(t_m / self.dt)
         t_response = int(self.response_period / self.dt)
-        t_grace = int(self.grace_period / self.dt)  # grace period before evaluating rule/decision responses
-        t_fixation_grace = int(self.fixation_grace_period / self.dt)  # grace period when returning to fixation
+        t_grace = int(
+            self.grace_period / self.dt
+        )  # grace period before evaluating rule/decision responses
+        t_fixation_grace = int(
+            self.fixation_grace_period / self.dt
+        )  # grace period when returning to fixation
 
         # Total trial length
-        total_t = (t_initial_fix_rule + t_rule_report +
-                    t_initial_fix_timing + t_inter + t_response)
+        total_t = (
+            t_initial_fix_rule
+            + t_rule_report
+            + t_initial_fix_timing
+            + t_inter
+            + t_response
+        )
 
         # Initialize 5 input channels (use float32 for PyTorch compatibility)
         center_fixation = np.ones(total_t, dtype=np.float32) * 0.2  # Tonic background
         horizontal_cue = np.zeros(total_t, dtype=np.float32)
         rule_cue = np.zeros(total_t, dtype=np.float32)
         vertical_cue = np.zeros(total_t, dtype=np.float32)
-        reward_cue = np.zeros(total_t, dtype=np.float32)  # Set during ITI in sequence tasks
+        reward_cue = np.zeros(
+            total_t, dtype=np.float32
+        )  # Set during ITI in sequence tasks
         # Create masks (loss_mask and eval_mask) as [T, 2]
         loss_mask = np.ones((total_t, 2), dtype=np.float32)
         eval_mask = np.zeros((total_t, 2), dtype=np.float32)
@@ -178,62 +217,87 @@ class BaseTask:
         # Initial delay, rule presentation and report
         rule_report_start = t_initial_fix_rule
         rule_report_end = rule_report_start + t_rule_report
-        vertical_cue[rule_report_start:rule_report_end] = 1.0  # Vertical cue active during response
-        if has_instruction:  # Rule cue active throughout entire rule report epoch if instructed
+        vertical_cue[rule_report_start:rule_report_end] = (
+            1.0  # Vertical cue active during response
+        )
+        if (
+            has_instruction
+        ):  # Rule cue active throughout entire rule report epoch if instructed
             rule_cue[0:rule_report_end] = rule
         v_position_target[rule_report_start:rule_report_end] = rule
         rule_eval_start = rule_report_start + t_grace
         eval_mask[rule_eval_start:rule_report_end, 1] = 1  # Vertical eval
-        loss_mask[rule_report_start:rule_eval_start, 1] = 0.0  # No loss during grace period
-        loss_mask[rule_eval_start:rule_report_end, 1] = 5.0  # 5x weight during rule evaluation
+        loss_mask[rule_report_start:rule_eval_start, 1] = (
+            0.0  # No loss during grace period
+        )
+        loss_mask[rule_eval_start:rule_report_end, 1] = (
+            5.0  # 5x weight during rule evaluation
+        )
         # Grace period after rule report when returning to fixation
         fixation_grace_end = min(rule_report_end + t_fixation_grace, total_t)
-        loss_mask[rule_report_end:fixation_grace_end, 1] = 0.0  # No loss during return to fixation
+        loss_mask[rule_report_end:fixation_grace_end, 1] = (
+            0.0  # No loss during return to fixation
+        )
 
         # Another fixation delay, timing flashes, and decision response
         timing_ready = rule_report_end + t_initial_fix_timing
         timing_set = timing_ready + t_inter
-        center_fixation[timing_ready:timing_ready+t_pulse] = 1.0  # Ready flash at center
-        horizontal_cue[timing_set:timing_set+t_pulse] = stim_direction  # Set pulse + direction
+        center_fixation[timing_ready : timing_ready + t_pulse] = (
+            1.0  # Ready flash at center
+        )
+        horizontal_cue[timing_set : timing_set + t_pulse] = (
+            stim_direction  # Set pulse + direction
+        )
         timing_response_start = timing_set
         timing_response_end = timing_response_start + t_response
         decision = self._compute_decision(t_s, stim_direction, rule)
         h_position_target[timing_response_start:timing_response_end] = decision
         timing_eval_start = timing_response_start + t_grace
         eval_mask[timing_eval_start:timing_response_end, 0] = 1  # Horizontal eval
-        loss_mask[timing_response_start:timing_eval_start, 0] = 0.0  # No loss during grace period
-        loss_mask[timing_eval_start:timing_response_end, 0] = 2.0  # 2x weight during decision evaluation
+        loss_mask[timing_response_start:timing_eval_start, 0] = (
+            0.0  # No loss during grace period
+        )
+        loss_mask[timing_eval_start:timing_response_end, 0] = (
+            2.0  # 2x weight during decision evaluation
+        )
 
         inputs = np.stack(
-            [center_fixation, horizontal_cue, rule_cue, vertical_cue, reward_cue], axis=0
+            [center_fixation, horizontal_cue, rule_cue, vertical_cue, reward_cue],
+            axis=0,
         ).transpose(1, 0)  # [T, 5]
-        targets = np.stack([h_position_target, v_position_target], axis=0).transpose(1, 0)  # [T, 2]
+        targets = np.stack([h_position_target, v_position_target], axis=0).transpose(
+            1, 0
+        )  # [T, 2]
 
         # Add noise (cast to float32 for consistency)
-        inputs_noisy = inputs + (self.input_noise_std * np.random.randn(*inputs.shape)).astype(np.float32)
+        inputs_noisy = inputs + (
+            self.input_noise_std * np.random.randn(*inputs.shape)
+        ).astype(np.float32)
 
         # Pad to max_timesteps
         if total_t < self.max_timesteps:
             pad_width = self.max_timesteps - total_t
-            inputs_noisy = np.pad(inputs_noisy, ((0, pad_width), (0, 0)), mode='constant')
-            targets = np.pad(targets, ((0, pad_width), (0, 0)), mode='constant')
-            loss_mask = np.pad(loss_mask, ((0, pad_width), (0, 0)), mode='constant')
-            eval_mask = np.pad(eval_mask, ((0, pad_width), (0, 0)), mode='constant')
+            inputs_noisy = np.pad(
+                inputs_noisy, ((0, pad_width), (0, 0)), mode="constant"
+            )
+            targets = np.pad(targets, ((0, pad_width), (0, 0)), mode="constant")
+            loss_mask = np.pad(loss_mask, ((0, pad_width), (0, 0)), mode="constant")
+            eval_mask = np.pad(eval_mask, ((0, pad_width), (0, 0)), mode="constant")
 
         return {
-            'inputs': inputs_noisy,
-            'targets': targets,
-            'loss_mask': loss_mask,
-            'eval_mask': eval_mask,
-            't_s': t_s,
-            't_m': t_m,
-            'stim_direction': stim_direction,
-            'rule': rule,
-            'decision': decision,
-            'trial_length': total_t,
-            'has_instruction': has_instruction,
-            'initial_fixation_rule': initial_fixation_rule,
-            'initial_fixation_timing': initial_fixation_timing,
+            "inputs": inputs_noisy,
+            "targets": targets,
+            "loss_mask": loss_mask,
+            "eval_mask": eval_mask,
+            "t_s": t_s,
+            "t_m": t_m,
+            "stim_direction": stim_direction,
+            "rule": rule,
+            "decision": decision,
+            "trial_length": total_t,
+            "has_instruction": has_instruction,
+            "initial_fixation_rule": initial_fixation_rule,
+            "initial_fixation_timing": initial_fixation_timing,
         }
 
     def _generate_block_structure(self, num_trials: int):
@@ -255,22 +319,24 @@ class BaseTask:
         block_id = -1
 
         for trial in range(num_trials):
-            if left_in_block == 0: # Start new block
+            if left_in_block == 0:  # Start new block
                 block_id += 1
                 block_len = self.block_min + np.random.geometric(1 / self.block_mean)
                 block_starts[trial] = True
-                rule = -rule # invert rule
+                rule = -rule  # invert rule
 
                 if block_len + trial > num_trials:
                     block_len = num_trials - trial  # Truncate last block if needed
                 left_in_block = block_len
 
-                if block_len <= 4: # first four trials always have rule cue
-                    has_instruction[trial:trial+block_len] = True
+                if block_len <= 4:  # first four trials always have rule cue
+                    has_instruction[trial : trial + block_len] = True
                 else:
-                    has_instruction[trial:trial+4] = True
-                    remaining = block_len - 4 # remaining trials may have rule cue stochastically
-                    has_instruction[trial+4:trial+block_len] = (
+                    has_instruction[trial : trial + 4] = True
+                    remaining = (
+                        block_len - 4
+                    )  # remaining trials may have rule cue stochastically
+                    has_instruction[trial + 4 : trial + block_len] = (
                         np.random.rand(remaining) < self.rule_cue_prob
                     )
 
@@ -286,8 +352,10 @@ class BaseTask:
             num_trials = self.trials_per_sequence
 
         # Check if this is a sequence task with block structure
-        if hasattr(self, 'block_min'):
-            rules, block_starts, has_instruction, block_ids = self._generate_block_structure(num_trials)
+        if hasattr(self, "block_min"):
+            rules, block_starts, has_instruction, block_ids = (
+                self._generate_block_structure(num_trials)
+            )
 
             trials = []
             for i in range(num_trials):
@@ -295,10 +363,10 @@ class BaseTask:
                     rule=int(rules[i]),
                     has_instruction=bool(has_instruction[i]),
                 )
-                trial['block_id'] = int(block_ids[i])
-                trial['trial_in_block'] = i - np.where(block_starts[:i+1])[0][-1]
-                trial['is_switch'] = bool(block_starts[i]) and i > 0
-                trial['trial_index'] = i
+                trial["block_id"] = int(block_ids[i])
+                trial["trial_in_block"] = i - np.where(block_starts[: i + 1])[0][-1]
+                trial["is_switch"] = bool(block_starts[i]) and i > 0
+                trial["trial_index"] = i
                 trials.append(trial)
             return trials
         else:
@@ -330,12 +398,12 @@ class BaseTask:
             trial_dict = {}
 
             # Stack main data arrays (numpy arrays are already float32)
-            main_keys = ['inputs', 'targets', 'loss_mask', 'eval_mask', 'trial_length']
+            main_keys = ["inputs", "targets", "loss_mask", "eval_mask", "trial_length"]
             for key in main_keys:
                 trial_dict[key] = torch.from_numpy(np.stack([t[key] for t in trials]))
 
             # Rename trial_length to trial_lengths (plural)
-            trial_dict['trial_lengths'] = trial_dict.pop('trial_length')
+            trial_dict["trial_lengths"] = trial_dict.pop("trial_length")
 
             # Collect metadata
             metadata = {}
@@ -343,7 +411,7 @@ class BaseTask:
                 if key not in main_keys:
                     metadata[key] = np.array([t.get(key, None) for t in trials])
 
-            trial_dict['metadata'] = metadata
+            trial_dict["metadata"] = metadata
             batch.append(trial_dict)
 
         return batch
@@ -354,7 +422,7 @@ class BaseTask:
         targets: torch.Tensor,
         eval_mask: torch.Tensor,
         batch: dict,
-        reduce: bool = True
+        reduce: bool = True,
     ) -> dict[str, float] | dict[str, torch.Tensor]:
         """Compute standard accuracy metrics. Can be overridden for custom metrics.
 
@@ -376,7 +444,7 @@ class BaseTask:
 
             t_start = 0
             for trial_dict in batch:
-                trial_len = trial_dict['inputs'].shape[1]
+                trial_len = trial_dict["inputs"].shape[1]
                 t_end = t_start + trial_len
 
                 # Extract this trial's data
@@ -410,14 +478,14 @@ class BaseTask:
             if reduce:
                 # Reduce to scalars
                 return {
-                    'decision_accuracy': decision_accs.mean().item(),
-                    'rule_accuracy': rule_accs.mean().item(),
+                    "decision_accuracy": decision_accs.mean().item(),
+                    "rule_accuracy": rule_accs.mean().item(),
                 }
             else:
                 # Return per-trial tensors
                 return {
-                    'decision_accuracy': decision_accs,
-                    'rule_accuracy': rule_accs,
+                    "decision_accuracy": decision_accs,
+                    "rule_accuracy": rule_accs,
                 }
 
     def create_trial_figure(
@@ -434,7 +502,7 @@ class BaseTask:
         loss_mask: Optional[np.ndarray] = None,
         block_overview: bool = False,
         batch_metadata: Optional[dict] = None,
-        fig: Optional[plt.Figure] = None
+        fig: Optional[plt.Figure] = None,
     ) -> plt.Figure:
         """Create standard trial visualization. Can be overridden for custom figures.
 
@@ -460,7 +528,7 @@ class BaseTask:
             else:
                 fig.clear()
 
-            axes = fig.subplots(3, 1, gridspec_kw={'height_ratios': [0.3, 1, 1]})
+            axes = fig.subplots(3, 1, gridspec_kw={"height_ratios": [0.3, 1, 1]})
             ax_block = axes[0]
             ax_inputs = axes[1]
             ax_outputs = axes[2]
@@ -477,12 +545,14 @@ class BaseTask:
         # Get trial length and metadata
         if isinstance(batch, list):
             # For sequence tasks: trial_idx is which trial in sequence, batch_idx is batch element
-            trial_length = batch[trial_idx]['trial_lengths'][batch_idx].item()
-            metadata = {k: v[batch_idx] for k, v in batch[trial_idx]['metadata'].items()}
+            trial_length = batch[trial_idx]["trial_lengths"][batch_idx].item()
+            metadata = {
+                k: v[batch_idx] for k, v in batch[trial_idx]["metadata"].items()
+            }
         else:
             # For single-trial tasks: trial_idx is batch element
-            trial_length = batch['metadata']['trial_length'][trial_idx]
-            metadata = {k: v[trial_idx] for k, v in batch['metadata'].items()}
+            trial_length = batch["metadata"]["trial_length"][trial_idx]
+            metadata = {k: v[trial_idx] for k, v in batch["metadata"].items()}
 
         # Handle ITI - either provided separately or already concatenated
         iti_boundary = None
@@ -497,18 +567,24 @@ class BaseTask:
             outputs = np.concatenate([outputs[:trial_length], iti_outputs], axis=0)
 
             # Extend targets and eval_mask with zeros for ITI
-            targets = np.concatenate([targets[:trial_length], np.zeros((iti_len, 2))], axis=0)
-            eval_mask = np.concatenate([eval_mask[:trial_length], np.zeros((iti_len, 2))], axis=0)
+            targets = np.concatenate(
+                [targets[:trial_length], np.zeros((iti_len, 2))], axis=0
+            )
+            eval_mask = np.concatenate(
+                [eval_mask[:trial_length], np.zeros((iti_len, 2))], axis=0
+            )
 
             # Extend loss_mask with zeros for ITI if provided
             if loss_mask is not None:
-                loss_mask = np.concatenate([loss_mask[:trial_length], np.zeros((iti_len, 2))], axis=0)
+                loss_mask = np.concatenate(
+                    [loss_mask[:trial_length], np.zeros((iti_len, 2))], axis=0
+                )
 
             T = trial_length + iti_len
         else:
             # Check if ITI is already concatenated (from generate_data)
             # For sequence tasks, metadata includes 'iti_start' and 'iti_length'
-            if 'iti_start' in metadata and inputs.shape[0] > trial_length:
+            if "iti_start" in metadata and inputs.shape[0] > trial_length:
                 # ITI already included - just mark the boundary
                 iti_boundary = trial_length
                 T = inputs.shape[0]
@@ -521,72 +597,112 @@ class BaseTask:
         # Block overview subplot (if requested)
         if block_overview:
             if batch_metadata is None:
-                raise ValueError("batch_metadata must be provided when block_overview=True")
+                raise ValueError(
+                    "batch_metadata must be provided when block_overview=True"
+                )
 
             # Determine total number of trials
             if isinstance(batch, list):
                 num_trials = len(batch)
             else:
-                num_trials = len(batch['trial_lengths'])
+                num_trials = len(batch["trial_lengths"])
 
             # Extract rules and instruction info
-            rules = batch_metadata.get('rule', np.ones(num_trials))
-            has_instruction = batch_metadata.get('has_instruction', None)
+            rules = batch_metadata.get("rule", np.ones(num_trials))
+            has_instruction = batch_metadata.get("has_instruction", None)
 
             trial_indices = np.arange(num_trials)
-            colors = ['C0' if r == 1 else 'C1' for r in rules]
+            colors = ["C0" if r == 1 else "C1" for r in rules]
 
             # Plot all trials with appropriate markers
             if has_instruction is not None:
                 for j in range(num_trials):
                     if has_instruction[j]:
-                        ax_block.scatter(j, rules[j], c=colors[j], s=100, marker='o',
-                                       edgecolors='black', linewidths=1.5, alpha=0.6)
+                        ax_block.scatter(
+                            j,
+                            rules[j],
+                            c=colors[j],
+                            s=100,
+                            marker="o",
+                            edgecolors="black",
+                            linewidths=1.5,
+                            alpha=0.6,
+                        )
                     else:
-                        ax_block.scatter(j, rules[j], c=colors[j], s=100, marker='x',
-                                       linewidths=2, alpha=0.6)
+                        ax_block.scatter(
+                            j,
+                            rules[j],
+                            c=colors[j],
+                            s=100,
+                            marker="x",
+                            linewidths=2,
+                            alpha=0.6,
+                        )
             else:
-                ax_block.scatter(trial_indices, rules, c=colors, s=100, alpha=0.6,
-                               edgecolors='black', linewidths=1)
+                ax_block.scatter(
+                    trial_indices,
+                    rules,
+                    c=colors,
+                    s=100,
+                    alpha=0.6,
+                    edgecolors="black",
+                    linewidths=1,
+                )
 
             # Highlight current trial
             current_trial = trial_idx
-            ax_block.scatter(current_trial, rules[current_trial], s=400, facecolors='none',
-                           edgecolors='lime', linewidths=3, zorder=10)
+            ax_block.scatter(
+                current_trial,
+                rules[current_trial],
+                s=400,
+                facecolors="none",
+                edgecolors="lime",
+                linewidths=3,
+                zorder=10,
+            )
 
-            ax_block.set_ylabel('Rule', fontsize=10)
+            ax_block.set_ylabel("Rule", fontsize=10)
             ax_block.set_yticks([-1, 1])
-            ax_block.set_yticklabels(['Rule 2', 'Rule 1'], fontsize=9)
+            ax_block.set_yticklabels(["Rule 2", "Rule 1"], fontsize=9)
             if has_instruction is not None:
-                ax_block.set_title(f'Batch Overview (○=instructed, ×=uninstructed, trial {trial_idx+1}/{num_trials} highlighted)',
-                                 fontsize=10)
+                ax_block.set_title(
+                    f"Batch Overview (○=instructed, ×=uninstructed, trial {trial_idx + 1}/{num_trials} highlighted)",
+                    fontsize=10,
+                )
             else:
-                ax_block.set_title(f'Batch Overview (trial {trial_idx+1}/{num_trials} highlighted)', fontsize=10)
-            ax_block.grid(True, alpha=0.3, axis='y')
+                ax_block.set_title(
+                    f"Batch Overview (trial {trial_idx + 1}/{num_trials} highlighted)",
+                    fontsize=10,
+                )
+            ax_block.grid(True, alpha=0.3, axis="y")
             ax_block.set_xlim(-1, num_trials)
             ax_block.set_ylim(-1.5, 1.5)
             ax_block.set_xticks([])
 
         # Input channels subplot
-        ax_inputs.plot(time_ms, inputs[:T, 0], label='Center fixation', linewidth=2)
-        ax_inputs.plot(time_ms, inputs[:T, 1], label='Horizontal cue', linewidth=2)
-        ax_inputs.plot(time_ms, inputs[:T, 2], label='Rule cue', linewidth=2, alpha=0.6)
-        ax_inputs.plot(time_ms, inputs[:T, 3], label='Vertical cue', linewidth=2, alpha=0.6)
-        ax_inputs.plot(time_ms, inputs[:T, 4], label='Reward cue', linewidth=2, alpha=0.6)
-        ax_inputs.set_ylabel('Input value')
+        ax_inputs.plot(time_ms, inputs[:T, 0], label="Center fixation", linewidth=2)
+        ax_inputs.plot(time_ms, inputs[:T, 1], label="Horizontal cue", linewidth=2)
+        ax_inputs.plot(time_ms, inputs[:T, 2], label="Rule cue", linewidth=2, alpha=0.6)
+        ax_inputs.plot(
+            time_ms, inputs[:T, 3], label="Vertical cue", linewidth=2, alpha=0.6
+        )
+        ax_inputs.plot(
+            time_ms, inputs[:T, 4], label="Reward cue", linewidth=2, alpha=0.6
+        )
+        ax_inputs.set_ylabel("Input value")
 
         # Build title with metadata
-        title_parts = [f'Trial {trial_idx+1}: {self.name}']
-        if 'rule' in metadata:
-            rule_name = 'Rule 1' if metadata['rule'] == 1 else 'Rule 2'
+        title_parts = [f"Trial {trial_idx + 1}: {self.name}"]
+        if "rule" in metadata:
+            rule_name = "Rule 1" if metadata["rule"] == 1 else "Rule 2"
             title_parts.append(rule_name)
-        if 't_s' in metadata:
+        if "t_s" in metadata:
             title_parts.append(f"t_s={metadata['t_s']:.0f}ms")
-        if 'stim_direction' in metadata:
+        if "stim_direction" in metadata:
             title_parts.append(f"stim_dir={metadata['stim_direction']:+.0f}")
 
-        ax_inputs.set_title(', '.join(title_parts))
-        ax_inputs.legend(loc='upper right', fontsize=8)
+        ax_inputs.set_title(", ".join(title_parts))
+        ax_inputs.legend(loc="upper right", fontsize=8)
         ax_inputs.grid(True, alpha=0.3)
 
         # Outputs subplot
@@ -596,44 +712,80 @@ class BaseTask:
         if loss_mask is not None:
             for ch in [0, 1]:
                 # Find contiguous regions where loss_mask is 0
-                zero_mask = (loss_mask[:T, ch] == 0)
+                zero_mask = loss_mask[:T, ch] == 0
                 if zero_mask.any():
                     # Find transitions
-                    transitions = np.diff(np.concatenate([[False], zero_mask, [False]]).astype(int))
+                    transitions = np.diff(
+                        np.concatenate([[False], zero_mask, [False]]).astype(int)
+                    )
                     starts = np.where(transitions == 1)[0]
                     ends = np.where(transitions == -1)[0]
 
                     for start, end in zip(starts, ends):
                         # Shade from start of first zero timestep to end of last zero timestep
                         # time_ms[end] is the start of the next timestep (end of the zero region)
-                        end_time = time_ms[end] if end < len(time_ms) else time_ms[-1] + self.dt
-                        ax.axvspan(time_ms[start], end_time, alpha=0.15, color='gray', zorder=0)
+                        end_time = (
+                            time_ms[end]
+                            if end < len(time_ms)
+                            else time_ms[-1] + self.dt
+                        )
+                        ax.axvspan(
+                            time_ms[start], end_time, alpha=0.15, color="gray", zorder=0
+                        )
 
-        ax.plot(time_ms, outputs[:T, 0], label='Horizontal output', linewidth=2, color='C0')
-        ax.plot(time_ms, targets[:T, 0], label='Horizontal target', linewidth=2, linestyle='--', color='C0', alpha=0.7)
-        ax.plot(time_ms, outputs[:T, 1], label='Vertical output', linewidth=2, color='C1')
-        ax.plot(time_ms, targets[:T, 1], label='Vertical target', linewidth=2, linestyle='--', color='C1', alpha=0.7)
+        ax.plot(
+            time_ms, outputs[:T, 0], label="Horizontal output", linewidth=2, color="C0"
+        )
+        ax.plot(
+            time_ms,
+            targets[:T, 0],
+            label="Horizontal target",
+            linewidth=2,
+            linestyle="--",
+            color="C0",
+            alpha=0.7,
+        )
+        ax.plot(
+            time_ms, outputs[:T, 1], label="Vertical output", linewidth=2, color="C1"
+        )
+        ax.plot(
+            time_ms,
+            targets[:T, 1],
+            label="Vertical target",
+            linewidth=2,
+            linestyle="--",
+            color="C1",
+            alpha=0.7,
+        )
 
         # Shade eval regions (eval_mask is [T, 2])
         for ch in [0, 1]:
             eval_start = np.where(eval_mask[:T, ch] > 0)[0]
             if len(eval_start) > 0:
-                ax.axvspan(time_ms[eval_start[0]], time_ms[eval_start[-1]], alpha=0.1, color='green')
+                ax.axvspan(
+                    time_ms[eval_start[0]],
+                    time_ms[eval_start[-1]],
+                    alpha=0.1,
+                    color="green",
+                )
 
-        ax.set_xlabel('Time (ms)')
-        ax.set_ylabel('Output value')
-        ax.set_title('Outputs')
-        ax.legend(loc='upper right', fontsize=8)
+        ax.set_xlabel("Time (ms)")
+        ax.set_ylabel("Output value")
+        ax.set_title("Outputs")
+        ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.3)
 
         # Add ITI boundary marker if present
         if iti_boundary is not None:
             boundary_time = iti_boundary * self.dt
-            ax_inputs.axvline(boundary_time, color='red', linestyle='--', linewidth=2, alpha=0.7)
-            ax_outputs.axvline(boundary_time, color='red', linestyle='--', linewidth=2, alpha=0.7)
+            ax_inputs.axvline(
+                boundary_time, color="red", linestyle="--", linewidth=2, alpha=0.7
+            )
+            ax_outputs.axvline(
+                boundary_time, color="red", linestyle="--", linewidth=2, alpha=0.7
+            )
         plt.tight_layout()
         return fig
-
 
     def _generate_iti_inputs(
         self,
@@ -665,9 +817,11 @@ class BaseTask:
         # Channel 1: horizontal cue (shows stimulus direction if trial was correct)
         for b in range(B):
             if is_correct[b]:
-                stim_direction = metadata['stim_direction'][b]
+                stim_direction = metadata["stim_direction"][b]
                 iti_inputs[b, :reward_len, 4] = 1.0  # Reward cue
-                iti_inputs[b, :reward_len, 1] = stim_direction  # Horizontal cue shows direction
+                iti_inputs[b, :reward_len, 1] = (
+                    stim_direction  # Horizontal cue shows direction
+                )
 
         # Add noise
         iti_inputs += self.input_noise_std * torch.randn_like(iti_inputs)

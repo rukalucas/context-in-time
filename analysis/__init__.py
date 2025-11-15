@@ -23,15 +23,15 @@ from analysis.utils import (
 
 __all__ = [
     # PCA
-    'do_pca',
-    'visualize_pca',
-    'animate_pca',
-    'plot_cross_period_variance',
-    'parse_projection',
-    'ProjectionVector',
+    "do_pca",
+    "visualize_pca",
+    "animate_pca",
+    "plot_cross_period_variance",
+    "parse_projection",
+    "ProjectionVector",
     # Utils
-    'generate_data',
-    'get_metadata',
-    'compute_psychometric_curves',
-    'compute_trial_events',
+    "generate_data",
+    "get_metadata",
+    "compute_psychometric_curves",
+    "compute_trial_events",
 ]
