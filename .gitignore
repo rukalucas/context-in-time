@@ -1,5 +1,6 @@
 .DS_Store
 .claude/
+__marimo__/
 *__pycache__/
 *.ipynb_checkpoints/
 .venv/

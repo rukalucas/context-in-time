@@ -1,10 +1,8 @@
 """Orthogonal Sequential Trainer - sequential training with orthogonal continual learning from Duncker et al. 2020."""
 
 import torch
-from typing import Optional
 
-from models import Model
-from tasks import BaseTask
+from trainers.utils import BaseTrainer
 from trainers.sequential_train import SequentialTrainer
 
 
@@ -35,6 +33,17 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         # Initialize orthogonal projection state
         self._init_projection_state()
         self._register_gradient_hooks()
+
+    def _is_sequence_task(self, batch: list) -> bool:
+        """Check if batch contains multiple trials (sequence task).
+
+        Args:
+            batch: List of trial dicts
+
+        Returns:
+            True if sequence task (multiple trials), False if single-trial task
+        """
+        return len(batch) > 1
 
     def _compute_covariance(self, x: torch.Tensor) -> torch.Tensor:
         """Compute covariance matrix: X @ X.T / (n-1).
@@ -195,7 +204,6 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
         with torch.no_grad():
             if self._is_sequence_task(batch):
                 # Sequence task: process trials with timestep loop
-                N = len(batch)
                 B = batch[0]['inputs'].shape[0]
                 h = torch.zeros(B, self.model.hidden_size)
 
@@ -226,7 +234,8 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
                 outputs_flat = torch.cat(all_outputs, dim=0)  # [B*N*T, output_size]
             else:
                 # Single trial task: process with timestep loop
-                inputs = batch['inputs']  # [B, T, 5]
+                trial = batch[0]  # Get the single trial dict
+                inputs = trial['inputs']  # [B, T, 5]
                 B, T, _ = inputs.shape
                 h = torch.zeros(B, self.model.hidden_size)
 
@@ -316,7 +325,6 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
             with torch.no_grad():
                 if self._is_sequence_task(batch):
                     # Sequence task: process trials with timestep loop
-                    N = len(batch)
                     B = batch[0]['inputs'].shape[0]
                     h = torch.zeros(B, self.model.hidden_size)
 
@@ -347,7 +355,8 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
                     outputs_flat = torch.cat(all_outputs, dim=0)  # [B*N*T, output_size]
                 else:
                     # Single trial task: process with timestep loop
-                    inputs = batch['inputs']  # [B, T, 5]
+                    trial = batch[0]  # Get the single trial dict
+                    inputs = trial['inputs']  # [B, T, 5]
                     B, T, _ = inputs.shape
                     h = torch.zeros(B, self.model.hidden_size)
 

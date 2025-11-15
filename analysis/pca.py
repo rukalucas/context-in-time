@@ -4,8 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d import Axes3D
-from typing import Optional, Union, NamedTuple
+from typing import NamedTuple
 from pathlib import Path
 
 # Import dependencies from utils
@@ -463,9 +462,9 @@ def plot_cross_period_variance(data_dict, task, period_names=None, n_components=
     # Add value annotations
     for i in range(n_periods):
         for j in range(n_periods):
-            text = ax.text(j, i, f'{variance_matrix[i, j]:.1f}',
-                          ha='center', va='center', color='white' if variance_matrix[i, j] < 50 else 'black',
-                          fontsize=11)
+            ax.text(j, i, f'{variance_matrix[i, j]:.1f}',
+                    ha='center', va='center', color='white' if variance_matrix[i, j] < 50 else 'black',
+                    fontsize=11)
 
     # Labels and title
     ax.set_xlabel('Test', fontsize=12, fontweight='bold')
@@ -1001,14 +1000,14 @@ def _get_color_scheme(color_by, metadata):
         color_map = 'continuous'
         labels = 'True interval t_s (ms)'
     elif color_by == 'instructed':
-        color_map = {True: 'blue', False: 'gray', 1: 'blue', 0: 'gray'}
-        labels = {True: 'Instructed', False: 'Uninstructed', 1: 'Instructed', 0: 'Uninstructed'}
+        color_map = {True: 'blue', False: 'gray'}
+        labels = {True: 'Instructed', False: 'Uninstructed'}
     elif color_by == 'switch':
-        color_map = {True: 'red', False: 'blue', 1: 'red', 0: 'blue'}
-        labels = {True: 'Switch', False: 'No Switch', 1: 'Switch', 0: 'No Switch'}
+        color_map = {True: 'red', False: 'blue'}
+        labels = {True: 'Switch', False: 'No Switch'}
     elif color_by == 'reward':
-        color_map = {1: 'gold', 0: 'gray', True: 'gold', False: 'gray'}
-        labels = {1: 'Rewarded', 0: 'Not Rewarded', True: 'Rewarded', False: 'Not Rewarded'}
+        color_map = {1: 'gold', 0: 'gray'}
+        labels = {1: 'Rewarded', 0: 'Not Rewarded'}
     else:
         # Default coloring
         color_map = {}

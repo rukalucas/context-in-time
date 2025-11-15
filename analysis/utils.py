@@ -2,7 +2,6 @@
 
 import numpy as np
 import torch
-from pathlib import Path
 
 
 def compute_trial_events(batch, task):

@@ -3,7 +3,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from pathlib import Path
 from typing import Optional
 
 from .utils import _process_single_trial

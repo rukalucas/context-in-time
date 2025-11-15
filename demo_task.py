@@ -46,7 +46,7 @@ def demo_instructed_timing_task(num_trials: int, discrete: bool):
 
         # Use task's create_trial_figure method
         # Since outputs = targets for demo (no model), we pass targets as both
-        fig = task.create_trial_figure(
+        task.create_trial_figure(
             inputs=inputs,
             outputs=targets,
             targets=targets,
