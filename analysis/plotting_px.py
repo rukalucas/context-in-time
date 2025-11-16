@@ -3,10 +3,9 @@
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
-from analysis.utils import _extract_period_boundaries
 from analysis.pca import do_pca
+from analysis.utils import _extract_period_boundaries
 
 
 def _get_color_scheme(color_by, metadata):
@@ -69,39 +68,45 @@ def _get_color_scheme(color_by, metadata):
         return {"type": "trial", "map": {}, "labels": {}}
 
 
-def _prepare_trajectory_data(
+def visualize_pca(
     result,
+    segments=None,
+    plot_3d=False,
     num_trials=None,
     color_by="rule",
-    segments=None,
+    width=900,
+    height=700,
+    title=None,
 ):
     """
-    Prepare trajectory data for plotly visualization.
+    Create static PCA visualization (2D or 3D) with optional segmentation.
 
     Args:
-        result: dict from do_pca()
-        num_trials: Number of trials to include (None = all)
-        color_by: What to color by
-        segments: Optional list of segment specs for variable transparency
+        result: dict from do_pca() containing pca_data, axis_labels, metadata, events, lengths
+        segments: Optional list of segment specs (note: variable alpha not supported in pure px)
+        plot_3d: bool, whether to plot in 3D
+        num_trials: Number of trials to plot (default None = plot all trials)
+        color_by: str - what to color by
+                 Discrete: 'rule', 'decision', 'stim_direction', 'instructed', 'switch', 'reward'
+                 Continuous: 't_m', 't_s'
+        width: Figure width in pixels
+        height: Figure height in pixels
+        title: Optional custom title
 
     Returns:
-        pd.DataFrame with columns: trial, timestep, PC1, PC2, [PC3], color, [segment, alpha]
+        plotly.graph_objects.Figure
     """
     pca_data = result["pca_data"]
     axis_labels = result["axis_labels"]
     lengths = result["lengths"]
     metadata = result["metadata"]
-    time_indices = result.get("time_indices", None)
-    events = result.get("events", None)
+    color_scheme = _get_color_scheme(color_by, metadata)
 
     # Limit trials
     if num_trials is None:
         num_trials = len(lengths)
     else:
         num_trials = min(num_trials, len(lengths))
-
-    # Get color scheme
-    color_scheme = _get_color_scheme(color_by, metadata)
 
     # Build dataframe
     rows = []
@@ -119,356 +124,147 @@ def _prepare_trajectory_data(
             # Trial-based coloring
             color_val = f"Trial {trial_idx + 1}"
 
-        # Add each timestep
+        # Add trajectory points
         for t in range(trial_len):
             row = {
                 "trial": trial_idx,
+                "trial_group": f"trial_{trial_idx}",  # For line grouping
                 "timestep": t,
                 axis_labels[0]: pca_data[trial_idx, t, 0],
                 axis_labels[1]: pca_data[trial_idx, t, 1],
                 "color": color_val,
+                "marker_type": "trajectory",
             }
 
             if pca_data.shape[2] >= 3:
                 row[axis_labels[2]] = pca_data[trial_idx, t, 2]
 
-            # Handle segments
-            if segments is not None and events is not None and time_indices is not None:
-                # Find which segment this timestep belongs to
-                original_t = time_indices[trial_idx, t]
-                segment_found = False
-
-                for seg_idx, seg_spec in enumerate(segments):
-                    # Get event indices in original trial coordinates
-                    if (
-                        seg_spec["start"] == "trial_end"
-                        or seg_spec["start"] == "period_end"
-                    ):
-                        start_t = lengths[trial_idx]
-                    elif seg_spec["start"] in events:
-                        start_t = events[seg_spec["start"]][trial_idx]
-                    else:
-                        try:
-                            start_t = int(seg_spec["start"])
-                        except ValueError:
-                            continue
-
-                    if (
-                        seg_spec["end"] == "trial_end"
-                        or seg_spec["end"] == "period_end"
-                    ):
-                        end_t = lengths[trial_idx]
-                    elif seg_spec["end"] in events:
-                        end_t = events[seg_spec["end"]][trial_idx]
-                    else:
-                        try:
-                            end_t = int(seg_spec["end"])
-                        except ValueError:
-                            continue
-
-                    if start_t <= original_t < end_t:
-                        row["segment"] = seg_spec.get(
-                            "label", f"{seg_spec['start']}→{seg_spec['end']}"
-                        )
-                        row["alpha"] = seg_spec.get("alpha", 1.0)
-                        segment_found = True
-                        break
-
-                if not segment_found:
-                    row["segment"] = "Other"
-                    row["alpha"] = 0.3
-
             rows.append(row)
 
-    return pd.DataFrame(rows)
+        # Add start marker
+        rows.append(
+            {
+                "trial": trial_idx,
+                "trial_group": f"trial_{trial_idx}",
+                "timestep": -1,  # Before trajectory
+                axis_labels[0]: pca_data[trial_idx, 0, 0],
+                axis_labels[1]: pca_data[trial_idx, 0, 1],
+                axis_labels[2]: pca_data[trial_idx, 0, 2]
+                if pca_data.shape[2] >= 3
+                else None,
+                "color": color_val,
+                "marker_type": "start",
+            }
+        )
 
+        # Add end marker
+        rows.append(
+            {
+                "trial": trial_idx,
+                "trial_group": f"trial_{trial_idx}",
+                "timestep": trial_len,  # After trajectory
+                axis_labels[0]: pca_data[trial_idx, trial_len - 1, 0],
+                axis_labels[1]: pca_data[trial_idx, trial_len - 1, 1],
+                axis_labels[2]: pca_data[trial_idx, trial_len - 1, 2]
+                if pca_data.shape[2] >= 3
+                else None,
+                "color": color_val,
+                "marker_type": "end",
+            }
+        )
 
-def visualize_pca(
-    result,
-    segments=None,
-    plot_3d=False,
-    num_trials=None,
-    color_by="rule",
-    width=900,
-    height=700,
-    title=None,
-):
-    """
-    Create static PCA visualization (2D or 3D) with optional segmentation.
-
-    Args:
-        result: dict from do_pca() containing pca_data, axis_labels, metadata, events, lengths
-        segments: Optional list of segment specs:
-                 [{'start': event_name, 'end': event_name, 'alpha': float, 'label': str}, ...]
-                 Events can be: 'trial_start', 'cue_onset', 'first_pulse', 'decision_start', etc.
-        plot_3d: bool, whether to plot in 3D
-        num_trials: Number of trials to plot (default None = plot all trials)
-        color_by: str - what to color by
-                 Discrete: 'rule', 'decision', 'stim_direction', 'instructed', 'switch', 'reward'
-                 Continuous: 't_m', 't_s'
-        width: Figure width in pixels
-        height: Figure height in pixels
-        title: Optional custom title
-
-    Returns:
-        plotly.graph_objects.Figure
-    """
-    axis_labels = result["axis_labels"]
-    metadata = result["metadata"]
-    color_scheme = _get_color_scheme(color_by, metadata)
-
-    # Prepare data
-    df = _prepare_trajectory_data(
-        result, num_trials=num_trials, color_by=color_by, segments=segments
-    )
-
-    # Determine if we have segments with variable alpha
-    has_segments = "segment" in df.columns
+    df = pd.DataFrame(rows)
 
     # Create figure
     if plot_3d and len(axis_labels) >= 3:
-        if has_segments:
-            # Need to create separate traces for each segment to handle alpha
-            fig = go.Figure()
+        fig = px.line_3d(
+            df[df["marker_type"] == "trajectory"],
+            x=axis_labels[0],
+            y=axis_labels[1],
+            z=axis_labels[2],
+            color="color",
+            line_group="trial_group",
+            hover_data=["trial", "timestep"],
+            title=title or "Hidden State Trajectories in PC Space (3D)",
+            width=width,
+            height=height,
+        )
+        fig.update_traces(opacity=0.7, line=dict(width=2))
 
-            # Group by trial and segment
-            for trial_idx in df["trial"].unique():
-                trial_data = df[df["trial"] == trial_idx]
-                color_val = trial_data["color"].iloc[0]
+        # Add start markers
+        fig_start = px.scatter_3d(
+            df[df["marker_type"] == "start"],
+            x=axis_labels[0],
+            y=axis_labels[1],
+            z=axis_labels[2],
+            color="color",
+            hover_data=["trial"],
+        )
+        fig_start.update_traces(
+            marker=dict(size=6, symbol="diamond", line=dict(width=1, color="black")),
+            showlegend=False,
+        )
+        for trace in fig_start.data:
+            fig.add_trace(trace)
 
-                # Get color (for continuous, use viridis scale)
-                if color_scheme["type"] == "continuous":
-                    # Map to viridis colorscale
-                    norm_val = (color_val - df["color"].min()) / (
-                        df["color"].max() - df["color"].min() + 1e-10
-                    )
-                    color = px.colors.sample_colorscale("viridis", [norm_val])[0]
-                else:
-                    # Use plotly default colors for discrete
-                    color_idx = list(df["color"].unique()).index(color_val)
-                    color = px.colors.qualitative.Plotly[
-                        color_idx % len(px.colors.qualitative.Plotly)
-                    ]
-
-                for segment in trial_data["segment"].unique():
-                    seg_data = trial_data[trial_data["segment"] == segment].sort_values(
-                        "timestep"
-                    )
-                    alpha = seg_data["alpha"].iloc[0]
-
-                    fig.add_trace(
-                        go.Scatter3d(
-                            x=seg_data[axis_labels[0]],
-                            y=seg_data[axis_labels[1]],
-                            z=seg_data[axis_labels[2]],
-                            mode="lines",
-                            line=dict(color=color, width=2),
-                            opacity=alpha,
-                            name=f"Trial {trial_idx}",
-                            legendgroup=str(color_val),
-                            showlegend=(segment == trial_data["segment"].iloc[0]),
-                            hovertemplate=f"Trial: {trial_idx}<br>"
-                            + f"{axis_labels[0]}: %{{x:.2f}}<br>"
-                            + f"{axis_labels[1]}: %{{y:.2f}}<br>"
-                            + f"{axis_labels[2]}: %{{z:.2f}}<br>"
-                            + f"Segment: {segment}<extra></extra>",
-                        )
-                    )
-
-            fig.update_layout(
-                scene=dict(
-                    xaxis_title=axis_labels[0],
-                    yaxis_title=axis_labels[1],
-                    zaxis_title=axis_labels[2],
-                ),
-                width=width,
-                height=height,
-                title=title or "Hidden State Trajectories in PC Space (3D)",
-            )
-        else:
-            # Simple 3D line plot without segments
-            fig = px.line_3d(
-                df,
-                x=axis_labels[0],
-                y=axis_labels[1],
-                z=axis_labels[2],
-                color="color",
-                line_group="trial",
-                hover_data=["trial", "timestep"],
-                title=title or "Hidden State Trajectories in PC Space (3D)",
-                width=width,
-                height=height,
-            )
-            fig.update_traces(opacity=0.7, line=dict(width=2))
+        # Add end markers
+        fig_end = px.scatter_3d(
+            df[df["marker_type"] == "end"],
+            x=axis_labels[0],
+            y=axis_labels[1],
+            z=axis_labels[2],
+            color="color",
+            hover_data=["trial"],
+        )
+        fig_end.update_traces(
+            marker=dict(size=6, symbol="x", line=dict(width=2)), showlegend=False
+        )
+        for trace in fig_end.data:
+            fig.add_trace(trace)
 
     else:
         # 2D plot
-        if has_segments:
-            # Need to create separate traces for each segment to handle alpha
-            fig = go.Figure()
-
-            # Group by trial and segment
-            for trial_idx in df["trial"].unique():
-                trial_data = df[df["trial"] == trial_idx]
-                color_val = trial_data["color"].iloc[0]
-
-                # Get color
-                if color_scheme["type"] == "continuous":
-                    norm_val = (color_val - df["color"].min()) / (
-                        df["color"].max() - df["color"].min() + 1e-10
-                    )
-                    color = px.colors.sample_colorscale("viridis", [norm_val])[0]
-                else:
-                    color_idx = list(df["color"].unique()).index(color_val)
-                    color = px.colors.qualitative.Plotly[
-                        color_idx % len(px.colors.qualitative.Plotly)
-                    ]
-
-                for segment in trial_data["segment"].unique():
-                    seg_data = trial_data[trial_data["segment"] == segment].sort_values(
-                        "timestep"
-                    )
-                    alpha = seg_data["alpha"].iloc[0]
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=seg_data[axis_labels[0]],
-                            y=seg_data[axis_labels[1]],
-                            mode="lines",
-                            line=dict(color=color, width=2),
-                            opacity=alpha,
-                            name=f"Trial {trial_idx}",
-                            legendgroup=str(color_val),
-                            showlegend=(segment == trial_data["segment"].iloc[0]),
-                            hovertemplate=f"Trial: {trial_idx}<br>"
-                            + f"{axis_labels[0]}: %{{x:.2f}}<br>"
-                            + f"{axis_labels[1]}: %{{y:.2f}}<br>"
-                            + f"Segment: {segment}<extra></extra>",
-                        )
-                    )
-
-            fig.update_layout(
-                xaxis_title=axis_labels[0],
-                yaxis_title=axis_labels[1],
-                width=width,
-                height=height,
-                title=title or "Hidden State Trajectories in PC Space (2D)",
-            )
-        else:
-            # Simple 2D line plot without segments
-            fig = px.line(
-                df,
-                x=axis_labels[0],
-                y=axis_labels[1],
-                color="color",
-                line_group="trial",
-                hover_data=["trial", "timestep"],
-                title=title or "Hidden State Trajectories in PC Space (2D)",
-                width=width,
-                height=height,
-            )
-            fig.update_traces(opacity=0.7, line=dict(width=2))
-
-    # Add start/end markers
-    pca_data = result["pca_data"]
-    lengths = result["lengths"]
-    num_show = min(num_trials or len(lengths), len(lengths))
-
-    start_points = []
-    end_points = []
-    colors = []
-
-    for i in range(num_show):
-        T_trial = int(lengths[i])
-        color_val = df[df["trial"] == i]["color"].iloc[0]
-
-        if plot_3d and len(axis_labels) >= 3:
-            start_points.append(
-                {
-                    axis_labels[0]: pca_data[i, 0, 0],
-                    axis_labels[1]: pca_data[i, 0, 1],
-                    axis_labels[2]: pca_data[i, 0, 2],
-                }
-            )
-            end_points.append(
-                {
-                    axis_labels[0]: pca_data[i, T_trial - 1, 0],
-                    axis_labels[1]: pca_data[i, T_trial - 1, 1],
-                    axis_labels[2]: pca_data[i, T_trial - 1, 2],
-                }
-            )
-        else:
-            start_points.append(
-                {axis_labels[0]: pca_data[i, 0, 0], axis_labels[1]: pca_data[i, 0, 1]}
-            )
-            end_points.append(
-                {
-                    axis_labels[0]: pca_data[i, T_trial - 1, 0],
-                    axis_labels[1]: pca_data[i, T_trial - 1, 1],
-                }
-            )
-
-        colors.append(color_val)
-
-    df_starts = pd.DataFrame(start_points)
-    df_starts["color"] = colors
-    df_ends = pd.DataFrame(end_points)
-    df_ends["color"] = colors
-
-    if plot_3d and len(axis_labels) >= 3:
-        fig.add_trace(
-            go.Scatter3d(
-                x=df_starts[axis_labels[0]],
-                y=df_starts[axis_labels[1]],
-                z=df_starts[axis_labels[2]],
-                mode="markers",
-                marker=dict(
-                    size=6,
-                    symbol="diamond",
-                    color="white",
-                    line=dict(width=1, color="black"),
-                ),
-                name="Start",
-                showlegend=True,
-            )
+        fig = px.line(
+            df[df["marker_type"] == "trajectory"],
+            x=axis_labels[0],
+            y=axis_labels[1],
+            color="color",
+            line_group="trial_group",
+            hover_data=["trial", "timestep"],
+            title=title or "Hidden State Trajectories in PC Space (2D)",
+            width=width,
+            height=height,
         )
-        fig.add_trace(
-            go.Scatter3d(
-                x=df_ends[axis_labels[0]],
-                y=df_ends[axis_labels[1]],
-                z=df_ends[axis_labels[2]],
-                mode="markers",
-                marker=dict(size=6, symbol="x", color="black"),
-                name="End",
-                showlegend=True,
-            )
+        fig.update_traces(opacity=0.7, line=dict(width=2))
+
+        # Add start markers
+        fig_start = px.scatter(
+            df[df["marker_type"] == "start"],
+            x=axis_labels[0],
+            y=axis_labels[1],
+            color="color",
+            hover_data=["trial"],
         )
-    else:
-        fig.add_trace(
-            go.Scatter(
-                x=df_starts[axis_labels[0]],
-                y=df_starts[axis_labels[1]],
-                mode="markers",
-                marker=dict(
-                    size=8,
-                    symbol="diamond",
-                    color="white",
-                    line=dict(width=1, color="black"),
-                ),
-                name="Start",
-                showlegend=True,
-            )
+        fig_start.update_traces(
+            marker=dict(size=8, symbol="diamond", line=dict(width=1, color="black")),
+            showlegend=False,
         )
-        fig.add_trace(
-            go.Scatter(
-                x=df_ends[axis_labels[0]],
-                y=df_ends[axis_labels[1]],
-                mode="markers",
-                marker=dict(size=8, symbol="x", color="black"),
-                name="End",
-                showlegend=True,
-            )
+        for trace in fig_start.data:
+            fig.add_trace(trace)
+
+        # Add end markers
+        fig_end = px.scatter(
+            df[df["marker_type"] == "end"],
+            x=axis_labels[0],
+            y=axis_labels[1],
+            color="color",
+            hover_data=["trial"],
         )
+        fig_end.update_traces(
+            marker=dict(size=8, symbol="x", line=dict(width=2)), showlegend=False
+        )
+        for trace in fig_end.data:
+            fig.add_trace(trace)
 
     return fig
 
@@ -478,30 +274,26 @@ def animate_pca(
     plot_3d=True,
     num_trials=None,
     color_by="rule",
-    interval=50,
     width=900,
     height=700,
     title=None,
     show_trajectories=True,
 ):
     """
-    Create animated PCA visualization with trajectories evolving over time.
+    Create animated PCA visualization showing trajectories evolving over time.
 
-    Memory-efficient implementation: trajectories are drawn frame-by-frame
-    showing the line being created in time.
+    Note: With plotly express, animation shows cumulative trajectory up to each frame.
+    The show_trajectories parameter toggles between showing full trajectory or just current point.
 
     Args:
         result: dict from do_pca() containing pca_data, axis_labels, metadata, lengths
         plot_3d: bool, whether to animate in 3D (default True)
         num_trials: Number of trials to animate (default None = animate all trials)
         color_by: str - what to color by
-                 Discrete: 'rule', 'decision', 'stim_direction', 'instructed', 'switch', 'reward'
-                 Continuous: 't_m', 't_s'
-        interval: Animation interval in ms (frame duration)
         width: Figure width in pixels
         height: Figure height in pixels
         title: Optional custom title
-        show_trajectories: If True, show lines; if False, show only current point
+        show_trajectories: If True, show cumulative trajectory; if False, show only current point
 
     Returns:
         plotly.graph_objects.Figure with animation
@@ -520,266 +312,131 @@ def animate_pca(
 
     max_length = max(int(lengths[i]) for i in range(num_trials))
 
-    # Prepare color mapping
-    color_values = []
-    for i in range(num_trials):
+    # Build dataframe for animation
+    rows = []
+
+    for trial_idx in range(num_trials):
+        trial_len = int(lengths[trial_idx])
+
+        # Determine color value for this trial
         if color_scheme["type"] == "continuous":
-            color_values.append(float(metadata[color_by][i]))
+            color_val = float(metadata[color_by][trial_idx])
         elif color_scheme["type"] == "discrete":
-            raw_val = metadata[color_by][i]
-            color_values.append(
-                color_scheme["map"].get(raw_val, f"Unknown ({raw_val})")
-            )
+            raw_val = metadata[color_by][trial_idx]
+            color_val = color_scheme["map"].get(raw_val, f"Unknown ({raw_val})")
         else:
-            color_values.append(f"Trial {i + 1}")
+            color_val = f"Trial {trial_idx + 1}"
 
-    # Create frames
-    frames = []
-
-    for frame_idx in range(max_length):
-        frame_data = []
-
-        for trial_idx in range(num_trials):
-            trial_len = int(lengths[trial_idx])
-
-            if frame_idx < trial_len:
+        # For each frame, add data up to that point
+        for frame in range(max_length):
+            if show_trajectories:
                 # Show trajectory up to current frame
-                end_idx = frame_idx + 1
+                for t in range(min(frame + 1, trial_len)):
+                    row = {
+                        "trial": trial_idx,
+                        "trial_group": f"trial_{trial_idx}",
+                        "frame": frame,
+                        "timestep": t,
+                        "time_ms": frame * 10,  # Assuming 10ms timesteps
+                        axis_labels[0]: pca_data[trial_idx, t, 0],
+                        axis_labels[1]: pca_data[trial_idx, t, 1],
+                        "color": color_val,
+                    }
+                    if pca_data.shape[2] >= 3:
+                        row[axis_labels[2]] = pca_data[trial_idx, t, 2]
+                    rows.append(row)
+            else:
+                # Show only current point
+                if frame < trial_len:
+                    row = {
+                        "trial": trial_idx,
+                        "trial_group": f"trial_{trial_idx}",
+                        "frame": frame,
+                        "timestep": frame,
+                        "time_ms": frame * 10,
+                        axis_labels[0]: pca_data[trial_idx, frame, 0],
+                        axis_labels[1]: pca_data[trial_idx, frame, 1],
+                        "color": color_val,
+                    }
+                    if pca_data.shape[2] >= 3:
+                        row[axis_labels[2]] = pca_data[trial_idx, frame, 2]
+                    rows.append(row)
 
-                # Get color
-                color_val = color_values[trial_idx]
-                if color_scheme["type"] == "continuous":
-                    norm_val = (color_val - min(color_values)) / (
-                        max(color_values) - min(color_values) + 1e-10
-                    )
-                    color = px.colors.sample_colorscale("viridis", [norm_val])[0]
-                else:
-                    color_idx = list(set(color_values)).index(color_val)
-                    color = px.colors.qualitative.Plotly[
-                        color_idx % len(px.colors.qualitative.Plotly)
-                    ]
+    df = pd.DataFrame(rows)
 
-                if plot_3d and pca_data.shape[2] >= 3:
-                    if show_trajectories:
-                        # Line trace showing trajectory
-                        frame_data.append(
-                            go.Scatter3d(
-                                x=pca_data[trial_idx, :end_idx, 0],
-                                y=pca_data[trial_idx, :end_idx, 1],
-                                z=pca_data[trial_idx, :end_idx, 2],
-                                mode="lines",
-                                line=dict(color=color, width=3),
-                                opacity=0.7,
-                                name=str(color_val),
-                                legendgroup=str(color_val),
-                                showlegend=(
-                                    trial_idx == 0
-                                    or color_val
-                                    not in [color_values[j] for j in range(trial_idx)]
-                                ),
-                                hoverinfo="skip",
-                            )
-                        )
-
-                    # Current point marker
-                    frame_data.append(
-                        go.Scatter3d(
-                            x=[pca_data[trial_idx, frame_idx, 0]],
-                            y=[pca_data[trial_idx, frame_idx, 1]],
-                            z=[pca_data[trial_idx, frame_idx, 2]],
-                            mode="markers",
-                            marker=dict(
-                                size=6, color=color, line=dict(width=1, color="white")
-                            ),
-                            showlegend=False,
-                            hoverinfo="skip",
-                        )
-                    )
-                else:
-                    if show_trajectories:
-                        # Line trace showing trajectory
-                        frame_data.append(
-                            go.Scatter(
-                                x=pca_data[trial_idx, :end_idx, 0],
-                                y=pca_data[trial_idx, :end_idx, 1],
-                                mode="lines",
-                                line=dict(color=color, width=3),
-                                opacity=0.7,
-                                name=str(color_val),
-                                legendgroup=str(color_val),
-                                showlegend=(
-                                    trial_idx == 0
-                                    or color_val
-                                    not in [color_values[j] for j in range(trial_idx)]
-                                ),
-                                hoverinfo="skip",
-                            )
-                        )
-
-                    # Current point marker
-                    frame_data.append(
-                        go.Scatter(
-                            x=[pca_data[trial_idx, frame_idx, 0]],
-                            y=[pca_data[trial_idx, frame_idx, 1]],
-                            mode="markers",
-                            marker=dict(
-                                size=8, color=color, line=dict(width=1, color="white")
-                            ),
-                            showlegend=False,
-                            hoverinfo="skip",
-                        )
-                    )
-
-        frames.append(go.Frame(data=frame_data, name=str(frame_idx)))
-
-    # Create initial figure (first frame)
-    fig = go.Figure(data=frames[0].data, frames=frames)
-
-    # Update layout
+    # Create animated figure
     if plot_3d and pca_data.shape[2] >= 3:
-        fig.update_layout(
-            scene=dict(
-                xaxis_title=axis_labels[0],
-                yaxis_title=axis_labels[1],
-                zaxis_title=axis_labels[2],
-                xaxis=dict(
-                    range=[pca_data[:, :, 0].min() - 0.5, pca_data[:, :, 0].max() + 0.5]
-                ),
-                yaxis=dict(
-                    range=[pca_data[:, :, 1].min() - 0.5, pca_data[:, :, 1].max() + 0.5]
-                ),
-                zaxis=dict(
-                    range=[pca_data[:, :, 2].min() - 0.5, pca_data[:, :, 2].max() + 0.5]
-                ),
-            ),
-            width=width,
-            height=height,
-            title=title or "RNN Trajectories - Evolving Over Time (3D)",
-            updatemenus=[
-                {
-                    "type": "buttons",
-                    "showactive": False,
-                    "buttons": [
-                        {
-                            "label": "Play",
-                            "method": "animate",
-                            "args": [
-                                None,
-                                {
-                                    "frame": {"duration": interval, "redraw": True},
-                                    "fromcurrent": True,
-                                    "mode": "immediate",
-                                },
-                            ],
-                        },
-                        {
-                            "label": "Pause",
-                            "method": "animate",
-                            "args": [
-                                [None],
-                                {
-                                    "frame": {"duration": 0, "redraw": False},
-                                    "mode": "immediate",
-                                },
-                            ],
-                        },
-                    ],
-                    "x": 0.1,
-                    "y": 0,
-                }
-            ],
-            sliders=[
-                {
-                    "active": 0,
-                    "steps": [
-                        {
-                            "args": [
-                                [f"{i}"],
-                                {
-                                    "frame": {"duration": 0, "redraw": True},
-                                    "mode": "immediate",
-                                },
-                            ],
-                            "label": f"{i * 10}ms",
-                            "method": "animate",
-                        }
-                        for i in range(max_length)
-                    ],
-                    "x": 0.1,
-                    "len": 0.85,
-                    "y": 0,
-                }
-            ],
-        )
+        if show_trajectories:
+            fig = px.line_3d(
+                df,
+                x=axis_labels[0],
+                y=axis_labels[1],
+                z=axis_labels[2],
+                color="color",
+                line_group="trial_group",
+                animation_frame="frame",
+                hover_data=["trial", "timestep"],
+                title=title or "RNN Trajectories - Evolving Over Time (3D)",
+                width=width,
+                height=height,
+                range_x=[pca_data[:, :, 0].min(), pca_data[:, :, 0].max()],
+                range_y=[pca_data[:, :, 1].min(), pca_data[:, :, 1].max()],
+                range_z=[pca_data[:, :, 2].min(), pca_data[:, :, 2].max()],
+            )
+            fig.update_traces(opacity=0.7, line=dict(width=3))
+        else:
+            fig = px.scatter_3d(
+                df,
+                x=axis_labels[0],
+                y=axis_labels[1],
+                z=axis_labels[2],
+                color="color",
+                animation_frame="frame",
+                hover_data=["trial", "timestep"],
+                title=title or "RNN Trajectories - Evolving Over Time (3D)",
+                width=width,
+                height=height,
+                range_x=[pca_data[:, :, 0].min(), pca_data[:, :, 0].max()],
+                range_y=[pca_data[:, :, 1].min(), pca_data[:, :, 1].max()],
+                range_z=[pca_data[:, :, 2].min(), pca_data[:, :, 2].max()],
+            )
+            fig.update_traces(marker=dict(size=6, line=dict(width=1, color="white")))
     else:
-        fig.update_layout(
-            xaxis_title=axis_labels[0],
-            yaxis_title=axis_labels[1],
-            xaxis=dict(
-                range=[pca_data[:, :, 0].min() - 0.5, pca_data[:, :, 0].max() + 0.5]
-            ),
-            yaxis=dict(
-                range=[pca_data[:, :, 1].min() - 0.5, pca_data[:, :, 1].max() + 0.5]
-            ),
-            width=width,
-            height=height,
-            title=title or "RNN Trajectories - Evolving Over Time (2D)",
-            updatemenus=[
-                {
-                    "type": "buttons",
-                    "showactive": False,
-                    "buttons": [
-                        {
-                            "label": "Play",
-                            "method": "animate",
-                            "args": [
-                                None,
-                                {
-                                    "frame": {"duration": interval, "redraw": True},
-                                    "fromcurrent": True,
-                                    "mode": "immediate",
-                                },
-                            ],
-                        },
-                        {
-                            "label": "Pause",
-                            "method": "animate",
-                            "args": [
-                                [None],
-                                {
-                                    "frame": {"duration": 0, "redraw": False},
-                                    "mode": "immediate",
-                                },
-                            ],
-                        },
-                    ],
-                    "x": 0.1,
-                    "y": 0,
-                }
-            ],
-            sliders=[
-                {
-                    "active": 0,
-                    "steps": [
-                        {
-                            "args": [
-                                [f"{i}"],
-                                {
-                                    "frame": {"duration": 0, "redraw": True},
-                                    "mode": "immediate",
-                                },
-                            ],
-                            "label": f"{i * 10}ms",
-                            "method": "animate",
-                        }
-                        for i in range(max_length)
-                    ],
-                    "x": 0.1,
-                    "len": 0.85,
-                    "y": 0,
-                }
-            ],
-        )
+        if show_trajectories:
+            fig = px.line(
+                df,
+                x=axis_labels[0],
+                y=axis_labels[1],
+                color="color",
+                line_group="trial_group",
+                animation_frame="frame",
+                hover_data=["trial", "timestep"],
+                title=title or "RNN Trajectories - Evolving Over Time (2D)",
+                width=width,
+                height=height,
+                range_x=[pca_data[:, :, 0].min(), pca_data[:, :, 0].max()],
+                range_y=[pca_data[:, :, 1].min(), pca_data[:, :, 1].max()],
+            )
+            fig.update_traces(opacity=0.7, line=dict(width=3))
+        else:
+            fig = px.scatter(
+                df,
+                x=axis_labels[0],
+                y=axis_labels[1],
+                color="color",
+                animation_frame="frame",
+                hover_data=["trial", "timestep"],
+                title=title or "RNN Trajectories - Evolving Over Time (2D)",
+                width=width,
+                height=height,
+                range_x=[pca_data[:, :, 0].min(), pca_data[:, :, 0].max()],
+                range_y=[pca_data[:, :, 1].min(), pca_data[:, :, 1].max()],
+            )
+            fig.update_traces(marker=dict(size=8, line=dict(width=1, color="white")))
+
+    # Update animation settings
+    fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 50
+    fig.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = 0
 
     return fig
 

@@ -5,3 +5,6 @@ PyYAML
 omegaconf
 ipympl
 wandb
+plotly
+pandas
+marimo
